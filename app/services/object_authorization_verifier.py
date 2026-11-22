@@ -6,10 +6,10 @@ from urllib.parse import quote, urlsplit
 
 
 _SOFT_DENIAL_PATTERNS = (
-    re.compile(r"\\b(?:access denied|not authorized|unauthorized|forbidden)\\b", re.I),
-    re.compile(r"\\b(?:resource|record|object|item)\\s+(?:was\\s+)?not found\\b", re.I),
-    re.compile(r"\\b(?:does not exist|no such (?:resource|record|object|item))\\b", re.I),
-    re.compile(r"\\bplease sign in\\b|\\blog in to continue\\b|\\bauthentication required\\b", re.I),
+    re.compile(r"\b(?:access denied|not authorized|unauthorized|forbidden)\b", re.I),
+    re.compile(r"\b(?:resource|record|object|item)\s+(?:was\s+)?not found\b", re.I),
+    re.compile(r"\b(?:does not exist|no such (?:resource|record|object|item))\b", re.I),
+    re.compile(r"\bplease sign in\b|\blog in to continue\b|\bauthentication required\b", re.I),
 )
 
 
@@ -43,7 +43,7 @@ def response_is_usable_resource_representation(body, content_type="", truncated=
                 # was returned, even when the endpoint responds with HTTP 200.
                 return False
     if "html" in media_type or "<html" in sample[:1000].lower():
-        if re.search(r"<input\\b[^>]*type\\s*=\\s*['\\"]?password", sample, re.I):
+        if re.search(r"<input\b[^>]*type\s*=\s*['\"]?password", sample, re.I):
             return False
     return True
 
