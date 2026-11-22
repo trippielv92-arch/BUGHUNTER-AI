@@ -252,3 +252,24 @@ def test_anonymous_api_endpoint_selection_skips_templates_and_risky_routes():
 def test_anonymous_api_assessment_is_explicitly_bounded():
     assert engine.ENDPOINT_ASSESSMENT_LIMIT == 12
     assert engine.MAX_PAGES == 100
+
+
+def test_anonymous_api_endpoint_selection_skips_concrete_object_identifiers():
+    from types import SimpleNamespace
+
+    endpoint = SimpleNamespace(
+        method="GET",
+        endpoint_type="OpenAPI documented API operation",
+        url="https://example.com/api/users/12345",
+    )
+    assert engine._safe_anonymous_get_endpoint(
+        endpoint, "https://example.com"
+    ) is None
+
+    endpoint.url = (
+        "https://example.com/api/orders/"
+        "123e4567-e89b-12d3-a456-426614174000"
+    )
+    assert engine._safe_anonymous_get_endpoint(
+        endpoint, "https://example.com"
+    ) is None
