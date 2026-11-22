@@ -2437,7 +2437,11 @@ def _analyze_reflected_query_inputs(
                 "query_values_recorded": False,
             }),
         )
-        return {"parameters_reviewed": 0, "reflected_parameters": 0}
+        return {
+            "parameters_reviewed": 0,
+            "reflected_parameters": 0,
+            "unescaped_reflected_parameters": 0,
+        }
 
     if not parameters:
         _save_check(
@@ -2449,7 +2453,11 @@ def _analyze_reflected_query_inputs(
                 "query_values_recorded": False,
             }),
         )
-        return {"parameters_reviewed": 0, "reflected_parameters": 0}
+        return {
+            "parameters_reviewed": 0,
+            "reflected_parameters": 0,
+            "unescaped_reflected_parameters": 0,
+        }
 
     response_text = body.decode("utf-8", errors="replace")
     sensitive_name_pattern = re.compile(
