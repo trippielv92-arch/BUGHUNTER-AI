@@ -25,6 +25,37 @@ logging.basicConfig(
 log = logging.getLogger("bughunter.worker")
 
 
+class JobStopSignal:
+    """Combine process shutdown with a durable per-job stop request."""
+
+    def __init__(self, db, job_id):
+        self.db = db
+        self.job_id = job_id
+
+    def is_set(self):
+        if STOP.is_set():
+            return True
+        # Use a fresh connection so a long-lived ORM transaction cannot
+        # retain a stale SQLite read snapshot after the UI commits a stop.
+        with engine.connect() as connection:
+            status = connection.execute(
+                text("SELECT status FROM assessment_jobs WHERE id=:id"),
+                {"id": self.job_id},
+            ).scalar_one_or_none()
+        return status != "running"
+
+    def wait(self, seconds):
+        import time
+        deadline = time.monotonic() + max(0.0, float(seconds))
+        while True:
+            if self.is_set():
+                return True
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return self.is_set()
+            STOP.wait(min(0.25, remaining))
+
+
 def shutdown(signum, frame):
     log.info("Shutdown requested; stopping active hunt safely.")
     STOP.set()
@@ -93,6 +124,12 @@ def claim_next_job():
 
 def persist_progress(db, job_id, percent, message):
     try:
+        status = db.execute(
+            text("SELECT status FROM assessment_jobs WHERE id=:id"),
+            {"id": job_id},
+        ).scalar_one_or_none()
+        if status != "running":
+            return
         update_job_progress(
             db, job_id, max(0, min(99, int(percent))),
             checkpoint=str(message)[:20000],
@@ -110,6 +147,7 @@ def run_job(job_id, project_id, owner_id):
         job = db.get(AssessmentJob, job_id)
         if not job or job.project_id != project_id or job.status != "running":
             return
+        job_stop = JobStopSignal(db, job_id)
 
         project = db.get(Project, project_id)
         if not project or project.status == "deleted" or not project.scope_approved:
@@ -137,19 +175,25 @@ def run_job(job_id, project_id, owner_id):
                     config.get("certificate_transparency", True)
                 ),
                 delay_seconds=1.0,
-                stop_event=STOP,
+                stop_event=job_stop,
                 progress_callback=lambda pct, msg: persist_progress(
                     db, job_id, int(int(pct) * 0.20),
                     "Passive discovery: " + str(msg),
                 ),
             )
 
-        if STOP.is_set() or (results["passive_recon"] or {}).get("stopped"):
-            transition_job(
-                db, job_id, "stopped", progress=20,
-                checkpoint="Hunt stopped safely during passive discovery.",
-                result_summary=json.dumps(results, default=str)[:20000],
-            )
+        if job_stop.is_set() or (results["passive_recon"] or {}).get("stopped"):
+            current = db.execute(
+                text("SELECT status FROM assessment_jobs WHERE id=:id"),
+                {"id": job_id},
+            ).scalar_one_or_none()
+            if current == "running":
+                transition_job(
+                    db, job_id, "stopped",
+                    progress=min(99, job.progress),
+                    checkpoint="Hunt stopped safely during passive discovery.",
+                    result_summary=json.dumps(results, default=str)[:20000],
+                )
             return
 
         # Recheck scope before active website retrieval.
@@ -163,20 +207,25 @@ def run_job(job_id, project_id, owner_id):
             db, project_id, target,
             max_pages=max_pages,
             delay_seconds=0.75,
-            stop_event=STOP,
+            stop_event=job_stop,
             progress_callback=lambda pct, msg: persist_progress(
                 db, job_id, 20 + int(int(pct) * 0.75),
                 "Website discovery: " + str(msg),
             ),
         )
 
-        if STOP.is_set() or (results["website_analysis"] or {}).get("stopped"):
-            transition_job(
-                db, job_id, "stopped",
-                progress=min(99, job.progress),
-                checkpoint="Hunt stopped safely after the current operation.",
-                result_summary=json.dumps(results, default=str)[:20000],
-            )
+        if job_stop.is_set() or (results["website_analysis"] or {}).get("stopped"):
+            current = db.execute(
+                text("SELECT status FROM assessment_jobs WHERE id=:id"),
+                {"id": job_id},
+            ).scalar_one_or_none()
+            if current == "running":
+                transition_job(
+                    db, job_id, "stopped",
+                    progress=min(99, job.progress),
+                    checkpoint="Hunt stopped safely after the current operation.",
+                    result_summary=json.dumps(results, default=str)[:20000],
+                )
             return
 
         # Evidence correlation only: no additional requests or payloads.

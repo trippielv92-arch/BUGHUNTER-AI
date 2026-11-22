@@ -2,6 +2,7 @@ import pytest
 
 from app.services.jobs import (
     create_job,
+    create_hunt_job,
     transition_job,
     update_job_progress,
     recover_interrupted_jobs,
@@ -16,7 +17,8 @@ from app.services.projects import (
 
 @pytest.fixture
 def approved_project(db):
-    project = create_project(db, "Job test project")
+    project = create_project(db, "Job test project", "https://example.com")
+    project.policy_text = "Authorized test policy for example.com."
     add_scope_asset(db, project.id, "example.com")
     approve_scope(db, project)
     return project
@@ -28,6 +30,44 @@ def test_create_job_requires_approved_scope(db):
     with pytest.raises(ValueError, match="approved"):
         create_job(db, project.id, "Test job")
 
+
+
+
+def test_create_hunt_job_requires_approved_exact_https_target(
+    db, approved_project
+):
+    job = create_hunt_job(
+        db, approved_project.id, "https://example.com/", max_pages=25
+    )
+
+    assert job.job_type == "Automated hunt"
+    assert job.status == "queued"
+    assert job.progress == 0
+    assert '"start_url": "https://example.com/"' in job.input_json
+    assert '"max_pages": 25' in job.input_json
+
+    with pytest.raises(ValueError, match="query parameters"):
+        create_hunt_job(
+            db,
+            approved_project.id,
+            "https://example.com/?token=do-not-store",
+        )
+
+
+def test_queued_hunt_can_be_stopped_before_worker_claims_it(
+    db, approved_project
+):
+    job = create_hunt_job(
+        db, approved_project.id, "https://example.com/"
+    )
+
+    stopped = transition_job(
+        db, job.id, "stopped",
+        checkpoint="Stopped before worker claim.",
+    )
+
+    assert stopped.status == "stopped"
+    assert stopped.finished_at is not None
 
 def test_job_lifecycle_and_terminal_state(db, approved_project):
     job = create_job(db, approved_project.id, "Test job")

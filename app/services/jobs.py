@@ -75,6 +75,11 @@ def create_hunt_job(db, project_id, start_url, max_pages=15):
     parsed = validate_target(db, project_id, start_url.strip())
     if parsed.scheme.lower() != "https" or parsed.port not in (None, 443):
         raise ValueError("Hunts require an approved HTTPS target on port 443.")
+    if parsed.query:
+        raise ValueError(
+            "Remove URL query parameters before queuing a hunt. "
+            "Do not store tokens or other secrets in target URLs."
+        )
 
     job = AssessmentJob(
         project_id=project_id,
@@ -176,10 +181,15 @@ def update_job_progress(db, job_id, progress, checkpoint=None):
 
 
 def list_jobs(db, project_id):
+    """Return fresh job state so desktop polling sees worker-side updates."""
     return db.scalars(
         select(AssessmentJob)
         .where(AssessmentJob.project_id == project_id)
-        .order_by(AssessmentJob.created_at.desc())
+        .order_by(
+            AssessmentJob.created_at.desc(),
+            AssessmentJob.id.desc(),
+        )
+        .execution_options(populate_existing=True)
     ).all()
 
 
