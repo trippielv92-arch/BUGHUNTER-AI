@@ -4,6 +4,7 @@ from app.services.object_authorization_verifier import (
     build_registered_resource_url,
     compare_owned_resource_access,
     select_distinct_requester_profiles,
+    response_is_usable_resource_representation,
 )
 
 
@@ -77,3 +78,51 @@ def test_truncated_responses_are_never_claimed_identical():
         owner_truncated=True,
     )
     assert result["same_response_representation"] is False
+
+
+def test_empty_success_response_is_not_cross_account_resource_evidence():
+    result = compare_owned_resource_access(200, 200, b'{"id":"owned"}', b"")
+    assert result["outcome"] == "inconclusive"
+    assert result["owner_response_usable_resource_evidence"] is True
+    assert result["requester_response_usable_resource_evidence"] is False
+    assert result["vulnerability_confirmed"] is False
+
+
+@pytest.mark.parametrize("body", [
+    b"Access denied",
+    b'{"error":"record not found"}',
+    b'{"errors":["not authorized"]}',
+    b"<html><form><input type='password'></form></html>",
+])
+def test_soft_denial_and_login_bodies_are_not_resource_evidence(body):
+    assert response_is_usable_resource_representation(body) is False
+
+
+def test_http_200_json_error_envelope_is_not_resource_evidence():
+    assert response_is_usable_resource_representation(
+        b'{"error":{"code":"NOT_FOUND"}}',
+        "application/json",
+    ) is False
+
+
+def test_mismatched_response_media_types_are_inconclusive():
+    result = compare_owned_resource_access(
+        200, 200,
+        b'{"id":"owned"}',
+        b"<html>Welcome</html>",
+        owner_content_type="application/json",
+        requester_content_type="text/html",
+    )
+    assert result["outcome"] == "inconclusive"
+    assert result["response_media_types_compatible"] is False
+
+
+def test_truncated_owner_response_is_not_usable_for_account_comparison():
+    result = compare_owned_resource_access(
+        200, 200, b'{"id":"owned"}', b'{"id":"owned"}',
+        owner_truncated=True,
+        owner_content_type="application/json",
+        requester_content_type="application/json",
+    )
+    assert result["outcome"] == "owner_response_not_resource_evidence"
+    assert result["owner_response_usable_resource_evidence"] is False
