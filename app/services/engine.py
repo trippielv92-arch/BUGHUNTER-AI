@@ -4105,6 +4105,31 @@ def run_website_analysis(
                 "difference_observed" if difference else "completed",
                 json.dumps(summary, ensure_ascii=False)[:8000],
             )
+            if difference:
+                _save_finding(
+                    db=db,
+                    project_id=project_id,
+                    title="Potential role-based API authorization difference",
+                    category="API Authorization",
+                    severity="medium",
+                    confidence="low",
+                    asset=summary["endpoint"],
+                    description=(
+                        "Researcher-controlled test-account roles received different "
+                        "HTTP statuses or recognized sensitive field names from the "
+                        "same API endpoint. This may be intended role behavior; "
+                        "review the documented permission matrix before confirmation."
+                    ),
+                    evidence=(
+                        json.dumps(summary, ensure_ascii=False)[:6000]
+                        + " Response values and credentials were not recorded."
+                    ),
+                    remediation=(
+                        "Compare observed role behavior with the program's intended "
+                        "permissions and verify any discrepancy using only "
+                        "researcher-controlled test accounts."
+                    ),
+                )
         if role_summaries:
             db.commit()
 
