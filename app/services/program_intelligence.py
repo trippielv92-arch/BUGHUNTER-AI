@@ -319,16 +319,16 @@ def derive_policy_execution_controls(policy_text):
     text = str(policy_text or "")
     sentences = [
         item.strip()
-        for item in re.split(r"(?<=[.!?])\\s+|\\n+", text)
+        for item in re.split(r"(?<=[.!?])\s+|\n+", text)
         if item.strip()
     ]
 
     automated_prohibition = re.compile(
-        r"(?:\\b(?:no|not|never|prohibit(?:ed)?|forbidden|disallow(?:ed)?)\\b"
-        r".{0,100}\\b(?:automated|automatic|scanner|scanning|tools?)\\b)"
-        r"|(?:\\b(?:automated|automatic)\\s+(?:scanners?|scanning|testing|tools?)\\b"
-        r".{0,100}\\b(?:prohibited|forbidden|not allowed|not permitted|disallowed)\\b)"
-        r"|(?:\\bdo not use\\b.{0,100}\\b(?:automated|automatic|scanner|scanning|tools?)\\b)",
+        r"(?:\b(?:no|not|never|prohibit(?:ed)?|forbidden|disallow(?:ed)?)\b"
+        r".{0,100}\b(?:automated|automatic|scanner|scanning|tools?)\b)"
+        r"|(?:\b(?:automated|automatic)\s+(?:scanners?|scanning|testing|tools?)\b"
+        r".{0,100}\b(?:prohibited|forbidden|not allowed|not permitted|disallowed)\b)"
+        r"|(?:\bdo not use\b.{0,100}\b(?:automated|automatic|scanner|scanning|tools?)\b)",
         re.I,
     )
     prohibited_sentences = [
@@ -338,11 +338,11 @@ def derive_policy_execution_controls(policy_text):
 
     limits = []
     per_unit = re.compile(
-        r"\\b(\\d+(?:\\.\\d+)?)\\s*(?:requests?|reqs?)\\s*"
-        r"(?:per|/)\\s*(second|minute|hour)\\b",
+        r"\b(\d+(?:\.\d+)?)\s*(?:requests?|reqs?)\s*"
+        r"(?:per|/)\s*(second|minute|hour)\b",
         re.I,
     )
-    shorthand = re.compile(r"\\b(\\d+(?:\\.\\d+)?)\\s*(rps|rpm|rph)\\b", re.I)
+    shorthand = re.compile(r"\b(\d+(?:\.\d+)?)\s*(rps|rpm|rph)\b", re.I)
     for sentence in sentences:
         for match in per_unit.finditer(sentence):
             value = float(match.group(1))
