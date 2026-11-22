@@ -2,7 +2,7 @@
 
 BugHunter AI is a local-first security research workspace. It helps organize programme policy, manually approved scope, passive asset discovery, endpoint inventory, vulnerability assessment planning, potential findings, evidence and reports.
 
-**It is not an autonomous exploit framework or a production multi-computer platform.** Automated hunts currently perform passive DNS/Certificate Transparency discovery and bounded, same-host HTTPS GET website discovery. Vulnerability-specific scenarios are created as manual review tasks; the worker does not run exploit payloads or confirm vulnerabilities.
+**Important capability boundary:** the current automated hunt performs passive DNS/Certificate Transparency discovery, bounded same-host HTTPS GET website discovery, endpoint inventory and evidence correlation. It does not yet perform comprehensive vulnerability-specific verification or run exploit payloads. See the cloud deployment guide for the cloud-worker foundation and current limitations.
 
 ## Install on Parrot OS
 
@@ -60,7 +60,13 @@ The desktop polls the persisted job queue and shows status, percentage and the l
 
 If the worker process is interrupted while a job is running, it safely requeues that job from the beginning on its next startup. It does not pretend to resume at an exact mid-crawl checkpoint. Pause/resume and exact checkpoint continuation are not implemented yet.
 
-The background worker currently requires the same local SQLite database as the desktop. It does not yet provide central API/PostgreSQL execution across multiple computers. If you override `BUGHUNTER_DATA_DIR` or `BUGHUNTER_DATABASE_URL`, make sure the worker service is configured to use the identical database location before relying on background execution.
+The local worker uses the local SQLite database. For hunts that must continue after the Parrot computer is shut down, deploy the PostgreSQL-backed cloud API and worker described in [Cloud deployment](docs/CLOUD_DEPLOYMENT.md). The local SQLite workspace and cloud workspace are separate; projects are not silently synchronized between them.
+
+## Cloud execution
+
+A Docker Compose deployment is now provided for a Linux VPS. It runs PostgreSQL, the authenticated API and a persistent hunt worker as separate services. The API and worker share the same database and durable job queue. PostgreSQL row locking allows multiple cloud worker replicas to claim different queued jobs safely.
+
+See [docs/CLOUD_DEPLOYMENT.md](docs/CLOUD_DEPLOYMENT.md) for setup, secrets, TLS reverse-proxy requirements, desktop connection and account creation. This is deployable infrastructure configuration, not a cloud server that has already been provisioned.
 
 ## What an automated hunt currently does
 
@@ -108,12 +114,13 @@ No findings does not mean a target is secure. A discovery run is not a comprehen
 - True pause/resume and exact mid-hunt checkpoint recovery.
 - Deeper permission-gated vulnerability verification using controlled test accounts.
 - Stronger finding deduplication, review workflow and evidence lifecycle.
-- Central server/API with PostgreSQL and multi-computer workers.
+- Managed cloud hosting, TLS ingress, encrypted backups and operational monitoring.
+- Authenticated browser-session import for private programmes (policy-text import is supported as the safer current fallback).
 - Further security hardening, integration tests, packaging and operational monitoring.
 
 ## Data and privacy
 
-The default SQLite database is stored under `data/bughunter.db` (overridable with `BUGHUNTER_DATA_DIR` or `BUGHUNTER_DATABASE_URL`). Passwords are Argon2-hashed. The database and evidence are not encrypted at rest. Activity records are persistent but not tamper-evident. Cloud AI is not configured.
+The default local SQLite database is stored under `data/bughunter.db` (overridable with `BUGHUNTER_DATA_DIR` or `BUGHUNTER_DATABASE_URL`). Cloud mode uses PostgreSQL. Passwords are Argon2-hashed. Database and evidence encryption at rest, encrypted backups and tamper-evident audit logs require additional deployment hardening. Private-programme policy text can be pasted/imported without saving provider passwords or session cookies.
 
 ## Requirements
 
