@@ -2888,13 +2888,21 @@ def run_website_analysis(
 
                 if indicator:
                     stats["exposure_indicators"] += 1
+                    severity = (
+                        "high"
+                        if probe_path in {
+                            "/.env", "/.git/HEAD", "/actuator/env", "/config.json"
+                        }
+                        else "low" if probe_path == "/.DS_Store" else "medium"
+                    )
+                    confidence = "medium" if severity == "high" else "low"
                     _save_finding(
                         db=db,
                         project_id=project_id,
                         title=f"Potential exposed sensitive resource: {probe_path}",
                         category="Sensitive Data Exposure",
-                        severity="high",
-                        confidence="medium",
+                        severity=severity,
+                        confidence=confidence,
                         asset=probe_url,
                         description=(
                             "A conventional resource returned content matching "
