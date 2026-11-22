@@ -109,8 +109,8 @@ def claim_next_job():
                     "WHERE j.status='queued' AND j.job_type=:kind "
                     "AND p.status <> 'deleted' AND p.scope_approved IS TRUE "
                     "AND p.owner_id IS NOT NULL "
-                    "ORDER BY j.created_at, j.id "
-                    "FOR UPDATE OF j SKIP LOCKED LIMIT 1"
+                    "ORDER BY j.created_at, j.id LIMIT 1 "
+                    "FOR UPDATE OF j SKIP LOCKED"
                 ), {"kind": JOB_TYPE}).first()
             else:
                 raise RuntimeError(
