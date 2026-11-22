@@ -177,6 +177,7 @@ def _exposure_probe_indicator(probe_path, status, body):
     return None
 
 
+CREDENTIALLED_ENDPOINT_ASSESSMENT_LIMIT = 12
 ENDPOINT_ASSESSMENT_LIMIT = 12
 SENSITIVE_RESPONSE_FIELD_MARKERS = {
     "email", "phone", "phonenumber", "mobile", "address",
@@ -484,9 +485,9 @@ def _is_safe_page(url, origin):
     return normalized
 
 
-def _read_limited_response(client, url):
-    """Read a bounded amount of decoded response content."""
-    with client.stream("GET", url) as response:
+def _read_limited_response(client, url, request_headers=None):
+    """Read a bounded response; optional per-request headers are never logged."""
+    with client.stream("GET", url, headers=request_headers or {}) as response:
         chunks = []
         total = 0
         truncated = False
@@ -2476,8 +2477,18 @@ def run_website_analysis(
         )
         else 0
     )
+    credential_reserve = (
+        CREDENTIALLED_ENDPOINT_ASSESSMENT_LIMIT
+        if auth_profiles and max_pages >= (
+            len(EXPOSURE_PROBE_PATHS)
+            + ENDPOINT_ASSESSMENT_LIMIT
+            + CREDENTIALLED_ENDPOINT_ASSESSMENT_LIMIT
+            + 2
+        )
+        else 0
+    )
     crawl_request_limit = (
-        max_pages - probe_reserve - endpoint_reserve
+        max_pages - probe_reserve - endpoint_reserve - credential_reserve
     )
 
     initial_finding_count = db.scalar(
@@ -2504,6 +2515,9 @@ def run_website_analysis(
         "anonymous_api_responses": 0,
         "anonymous_api_protected": 0,
         "anonymous_sensitive_field_indicators": 0,
+        "credentialed_api_requests": 0,
+        "credential_profiles_used": 0,
+        "credentialed_response_differences": 0,
         "client_routes_discovered": 0,
         "javascript_assets_checked": 0,
         "source_maps_discovered": 0,
@@ -3337,6 +3351,7 @@ def run_website_analysis(
     # Assess a small set of explicitly discovered API GET operations with
     # no Authorization header and no cookies. Never replay discovered query
     # strings, submit forms, or invoke non-GET OpenAPI operations.
+    api_endpoint_candidates = []
     if not stats["stopped"] and endpoint_reserve:
         discovered_endpoints = db.scalars(
             select(Endpoint).where(
@@ -3354,6 +3369,7 @@ def run_website_analysis(
             candidates.append(candidate_url)
             if len(candidates) >= ENDPOINT_ASSESSMENT_LIMIT:
                 break
+        api_endpoint_candidates = list(candidates)
 
         for endpoint_url in candidates:
             if stats["total_requests"] >= max_pages:
