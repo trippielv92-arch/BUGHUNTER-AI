@@ -541,7 +541,7 @@ class ScopeAssetCreate(BaseModel):
 
 
 class ScopeApprovalRequest(BaseModel):
-    policy_text: str = Field(min_length=1, max_length=100000)
+    policy_text: str = Field(min_length=1, max_length=200000)
 
 
 class EndpointCreate(BaseModel):
