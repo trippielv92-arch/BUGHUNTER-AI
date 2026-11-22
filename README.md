@@ -64,7 +64,7 @@ The local worker uses the local SQLite database. For hunts that must continue af
 
 ## Cloud execution
 
-A Docker Compose deployment is now provided for a Linux VPS. It runs PostgreSQL, the authenticated API and a persistent hunt worker as separate services. The API and worker share the same database and durable job queue. PostgreSQL row locking allows multiple cloud worker replicas to claim different queued jobs safely.
+A Docker Compose deployment is now provided for a Linux VPS. It runs PostgreSQL, the authenticated API and one persistent hunt worker as separate services. The API and worker share the same database and durable job queue. PostgreSQL row locking makes each job claim atomic; multi-worker lease/heartbeat recovery is not implemented yet.
 
 See [docs/CLOUD_DEPLOYMENT.md](docs/CLOUD_DEPLOYMENT.md) for setup, secrets, TLS reverse-proxy requirements, desktop connection and account creation. This is deployable infrastructure configuration, not a cloud server that has already been provisioned.
 
