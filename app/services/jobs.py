@@ -75,6 +75,11 @@ def create_hunt_job(db, project_id, start_url, max_pages=15):
     parsed = validate_target(db, project_id, start_url.strip())
     if parsed.scheme.lower() != "https" or parsed.port not in (None, 443):
         raise ValueError("Hunts require an approved HTTPS target on port 443.")
+    if parsed.query:
+        raise ValueError(
+            "Remove URL query parameters before queuing a hunt. "
+            "Do not store tokens or other secrets in target URLs."
+        )
 
     job = AssessmentJob(
         project_id=project_id,
