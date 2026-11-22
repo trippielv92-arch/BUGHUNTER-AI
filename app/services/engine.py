@@ -2347,6 +2347,14 @@ def run_website_analysis(
     queue = deque([start_url])
     visited = set()
 
+    # Reserve a portion of the shared request budget for fixed exposure and
+    # API-documentation checks so a deep page crawl cannot starve them.
+    probe_reserve = min(
+        len(EXPOSURE_PROBE_PATHS),
+        max(0, max_pages - 2),
+    )
+    crawl_request_limit = max_pages - probe_reserve
+
     initial_finding_count = db.scalar(
         select(func.count()).select_from(Finding).where(
             Finding.project_id == project_id,
@@ -2469,7 +2477,7 @@ def run_website_analysis(
 
         while (
             queue
-            and stats["total_requests"] < max_pages
+            and stats["total_requests"] < crawl_request_limit
             and not stats["stopped"]
         ):
             url = queue.popleft()
