@@ -3559,8 +3559,8 @@ def run_website_analysis(
                 if (
                     auth_type not in {"bearer", "cookie"}
                     or not secret
-                    or "\\r" in secret
-                    or "\\n" in secret
+                    or "\r" in secret
+                    or "\n" in secret
                 ):
                     _save_check(
                         db, project_id, endpoint_url,
