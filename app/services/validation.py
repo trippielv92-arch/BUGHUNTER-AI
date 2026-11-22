@@ -90,6 +90,14 @@ FAMILY_RULES = {
         ),
         "markers": ("verbose_error_indicators", "error_indicators", "debug_matches"),
     },
+    "authorization": {
+        "finding_terms": (
+            "authorization", "cross-account access", "idor",
+            "broken object level", "tenant isolation",
+        ),
+        "checks": ("Researcher-owned resource cross-account comparison",),
+        "markers": ("owner_attested_cross_account_success",),
+    },
     "forms": {
         "finding_terms": ("password form", "password over get", "external form", "external origin"),
         "checks": ("HTML transport, form, metadata, and debug review",),
@@ -151,13 +159,22 @@ def _walk_for_markers(value, wanted, found=None, depth=0):
     return found
 
 
-def _matching_checks(finding, checks, rule):
+def _matching_checks(family, finding, checks, rule):
     allowed_names = set(rule["checks"])
+    if family == "authorization":
+        allowed_outcomes = {
+            "potential_cross_account_access",
+            "cross_account_access_denied",
+            "inconclusive",
+            "owner_access_not_verified",
+        }
+    else:
+        allowed_outcomes = {"completed"}
     return [
         check for check in checks
         if check.asset == finding.asset
         and check.check_name in allowed_names
-        and check.outcome == "completed"
+        and check.outcome in allowed_outcomes
     ]
 
 
@@ -165,6 +182,24 @@ def _collect_validation_markers(family, matched, rule):
     """Collect conservative indicators from completed observations."""
     found = set()
     wanted = set(rule["markers"])
+
+    if family == "authorization":
+        for check in matched:
+            details = _load_details(check.details)
+            if (
+                check.outcome == "potential_cross_account_access"
+                and isinstance(details, dict)
+                and details.get("outcome") == "potential_cross_account_access"
+                and details.get("owner_access_attested") is True
+                and details.get("vulnerability_confirmed") is False
+            ):
+                try:
+                    requester_status = int(details.get("requester_status"))
+                except (TypeError, ValueError):
+                    continue
+                if 200 <= requester_status < 300:
+                    found.add("owner_attested_cross_account_success")
+        return found
 
     for check in matched:
         details = _load_details(check.details)
@@ -313,7 +348,7 @@ def validate_project_findings(db, project_id):
                 "Manual review and reproducible evidence are required."
             )
         else:
-            matched = _matching_checks(finding, checks, rule)
+            matched = _matching_checks(family, finding, checks, rule)
             markers = _collect_validation_markers(
                 family, matched, rule
             )

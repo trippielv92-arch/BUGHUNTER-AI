@@ -562,10 +562,21 @@ def _save_finding(
             if confidence_rank.get(confidence, 0) > confidence_rank.get(existing.confidence, 0):
                 existing.confidence = confidence
 
-            existing.category = category
-            existing.description = description
-            existing.evidence = evidence
-            existing.remediation = remediation
+            if not existing.evidence:
+                existing.evidence = str(evidence or "")[:20000]
+            else:
+                new_evidence = str(evidence or "").strip()
+                current_evidence = str(existing.evidence or "")
+                if new_evidence and new_evidence not in current_evidence:
+                    marker = "Additional evidence observations:"
+                    addition = (
+                        f"\n- {new_evidence}"
+                        if marker in current_evidence
+                        else f"\n\n{marker}\n- {new_evidence}"
+                    )
+                    remaining = max(0, 20000 - len(current_evidence))
+                    if remaining:
+                        existing.evidence = current_evidence + addition[:remaining]
 
         return False
 
