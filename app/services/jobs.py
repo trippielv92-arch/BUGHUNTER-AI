@@ -176,10 +176,15 @@ def update_job_progress(db, job_id, progress, checkpoint=None):
 
 
 def list_jobs(db, project_id):
+    """Return fresh job state so desktop polling sees worker-side updates."""
     return db.scalars(
         select(AssessmentJob)
         .where(AssessmentJob.project_id == project_id)
-        .order_by(AssessmentJob.created_at.desc())
+        .order_by(
+            AssessmentJob.created_at.desc(),
+            AssessmentJob.id.desc(),
+        )
+        .execution_options(populate_existing=True)
     ).all()
 
 
