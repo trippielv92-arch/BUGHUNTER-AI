@@ -79,12 +79,21 @@ capture is not part of this deployment foundation.
 - Vulnerability-specific checks requiring authentication, controlled accounts,
   payloads or special permission are not silently run. Potential findings are
   not automatically promoted to confirmed.
-- Policy extraction is conservative and advisory. The operator must review
-  the source policy, exclusions, ambiguous entries and exact assets, then
-  approve scope. Wildcards are not expanded into authorization.
+- Policy extraction is generic across programme URLs and recognizes
+  several common providers. It preserves page section boundaries, extracts
+  exact hostnames, wildcard hostnames, CIDRs, IP literals and path-limited
+  URLs, and records policy restrictions as evidence. Provider recognition
+  does not mean a provider-specific API adapter is available.
+- Only clear, exact-host inclusion candidates can be bulk-proposed to scope.
+  Wildcards, CIDRs, IPs and URL/path candidates are not expanded into broader
+  hostname authorization. The complete proposed list still requires explicit
+  scope approval. A changed policy snapshot revokes previous scope approval.
+- Explicit automated-scanning prohibitions suppress active website crawling.
+  Parsed request-rate limits increase the delay between active requests.
+  These controls are conservative heuristics; inspect the original policy.
 - A policy page that is JavaScript-rendered, blocked, or behind authentication
-  may require manual policy text import. Provider recognition is not proof
-  that a provider-specific API adapter was used.
+  may require manual policy text import. Authenticated browser capture is not
+  included yet.
 - Configure encrypted backups for PostgreSQL and the persistent data volume.
   The application database/evidence volume is not encrypted at rest by this
   Compose file.
