@@ -50,7 +50,7 @@ def test_credential_headers_reject_line_breaks(monkeypatch):
         Fernet.generate_key().decode("ascii"),
     )
     with pytest.raises(ValueError, match="line breaks"):
-        encrypt_secret("token-value\\r\\nAuthorization: injected")
+        encrypt_secret("token-value" + chr(13) + chr(10) + "Authorization: injected")
 
 
 def test_profiles_are_bound_to_exact_approved_hosts(db, monkeypatch):
