@@ -531,7 +531,7 @@ def test_credentialed_api_comparison_uses_only_per_request_test_credentials(
         headers == {"Cookie": "session=standard-token"}
         for _url, headers in requests
     )
-    assert FakeClient.instance.cookies.clear_count == 6
+    assert FakeClient.instance.cookies.clear_count == 4
 
     checks = db.query(ScanCheck).filter(
         ScanCheck.project_id == project.id,
