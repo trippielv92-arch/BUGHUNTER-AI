@@ -53,11 +53,99 @@ EXPOSURE_PROBE_PATHS = (
     "/.env",
     "/.git/HEAD",
     "/actuator/env",
+    "/config.json",
+    "/phpinfo.php",
+    "/server-status",
+    "/debug/vars",
+    "/.DS_Store",
     "/openapi.json",
     "/swagger.json",
+    "/v3/api-docs",
+    "/api-docs",
+    "/swagger/v1/swagger.json",
+    "/.well-known/openapi.json",
+)
+
+API_DOCUMENTATION_PATHS = (
+    "/openapi.json",
+    "/swagger.json",
+    "/v3/api-docs",
+    "/api-docs",
+    "/swagger/v1/swagger.json",
+    "/.well-known/openapi.json",
 )
 
 DIAGNOSTIC_ORIGIN = "https://bughunter-ai.invalid"
+
+
+def _exposure_probe_indicator(probe_path, status, body):
+    """Return a marker label only; never return or persist response secrets."""
+    if status != 200:
+        return None
+
+    raw = body if isinstance(body, bytes) else str(body or "").encode("utf-8")
+    text = raw.decode("utf-8", errors="replace")
+
+    if probe_path == "/.env":
+        if re.search(
+            r"(?im)^\s*(?:APP_KEY|DB_PASSWORD|DATABASE_URL|SECRET_KEY|"
+            r"JWT_SECRET|CLIENT_SECRET|PRIVATE_KEY|AWS_SECRET_ACCESS_KEY|API_KEY)\s*=",
+            text,
+        ):
+            return "Environment-variable configuration markers"
+
+    elif probe_path == "/.git/HEAD":
+        if re.match(r"(?im)^\s*ref:\s+refs/", text):
+            return "Git repository HEAD reference"
+
+    elif probe_path == "/actuator/env":
+        if "propertySources" in text and (
+            "activeProfiles" in text or '"property"' in text
+        ):
+            return "Spring actuator environment metadata"
+
+    elif probe_path == "/config.json":
+        if re.search(
+            r'(?i)"(?:api[_-]?key|client[_-]?secret|access[_-]?token|'
+            r'private[_-]?key|database[_-]?url|jwt[_-]?secret)"\s*:',
+            text,
+        ):
+            return "Sensitive configuration property names"
+
+    elif probe_path == "/phpinfo.php":
+        if (
+            "PHP Version" in text
+            and (
+                "Configuration File (php.ini) Path" in text
+                or "Loaded Configuration File" in text
+            )
+        ):
+            return "PHP configuration diagnostic page"
+
+    elif probe_path == "/server-status":
+        if "Apache Server Status" in text and (
+            "Server uptime" in text or "Server Version" in text
+        ):
+            return "Apache server-status diagnostic page"
+
+    elif probe_path == "/debug/vars":
+        try:
+            payload = json.loads(text[:500000])
+        except (ValueError, TypeError):
+            payload = None
+        if isinstance(payload, dict):
+            names = {str(key).lower() for key in payload}
+            if names.intersection({
+                "cmdline", "memstats", "goroutines", "num_goroutine",
+                "heap_alloc", "alloc", "num_cpu",
+            }):
+                return "Runtime diagnostic metrics"
+
+    elif probe_path == "/.DS_Store":
+        if raw[:4] in {b"Bud1", b"Bud2"}:
+            return "macOS directory metadata file"
+
+    return None
 
 
 SECURITY_HEADERS = {
