@@ -9,7 +9,9 @@ the worker does not depend on the desktop or its SQLite database.
 - PostgreSQL-backed accounts, projects, scope, policy snapshots, jobs and findings.
 - An authenticated API for the existing desktop remote-workspace mode.
 - A persistent worker that claims queued hunts using PostgreSQL row locks and
-  SKIP LOCKED, so multiple worker replicas do not claim the same job.
+  SKIP LOCKED to make each individual claim atomic. Run one worker instance
+  with this initial deployment; multi-worker lease/heartbeat recovery is not
+  implemented yet.
 - Restart recovery: interrupted hunts are safely requeued from the beginning.
 - Persistent Docker volumes for the database and evidence/data directory.
 
