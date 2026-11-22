@@ -82,7 +82,7 @@ See [docs/CLOUD_DEPLOYMENT.md](docs/CLOUD_DEPLOYMENT.md) for setup, secrets, TLS
 - Correlates existing observations with potential findings without sending extra requests or payloads.
 - Persists progress, checkpoints, results and job status in the local database.
 
-The current hunt page/request limit is bounded (maximum 25). Website discovery does not follow redirects. Certificate Transparency lookups contact `crt.sh`; discovered target hosts are not probed unless individually reviewed and approved later.
+The current hunt page/request limit is bounded (maximum 100). Website discovery does not follow redirects. Certificate Transparency lookups contact `crt.sh`; discovered target hosts are not probed unless individually reviewed and approved later.
 
 ## Safety and authorization boundaries
 
