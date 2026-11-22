@@ -136,6 +136,16 @@ class APIClient:
             f"/api/v1/projects/{int(project_id)}/{resource}",
         )
 
+    def start_hunt(self, project_id, start_url, max_pages=25):
+        return self.request(
+            "POST",
+            f"/api/v1/projects/{int(project_id)}/hunts",
+            json_data={
+                "start_url": start_url,
+                "max_pages": max_pages,
+            },
+        )
+
     def archive_project(self, project_id, confirmation_name):
         return self.request(
             "POST",
