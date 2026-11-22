@@ -279,3 +279,14 @@ def test_scanner_only_ban_keeps_non_active_passive_discovery_separate():
     )
     assert controls["active_automated_testing_allowed"] is False
     assert controls["passive_discovery_allowed"] is True
+
+
+def test_exact_ip_url_is_not_bulk_proposed_as_a_hostname():
+    result = analyze_program_policy(
+        "https://program.example.org",
+        "In scope https://192.0.2.44/",
+    )
+    candidates = result["scope"]["included_candidates"]
+    assert len(candidates) == 1
+    assert candidates[0]["asset"] == "192.0.2.44"
+    assert candidates[0]["type"] == "ip_address"
