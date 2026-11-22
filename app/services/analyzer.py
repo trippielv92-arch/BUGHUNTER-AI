@@ -202,5 +202,6 @@ def analyze_programme(url, manual_policy=""):
         "scope": intelligence["scope"],
         "policy_topics": intelligence["policy_topics"],
         "rules": intelligence["rules"],
+        "execution_controls": intelligence["execution_controls"],
         "warnings": intelligence["warnings"],
     }
