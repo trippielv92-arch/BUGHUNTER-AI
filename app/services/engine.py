@@ -177,6 +177,107 @@ def _exposure_probe_indicator(probe_path, status, body):
     return None
 
 
+ENDPOINT_ASSESSMENT_LIMIT = 12
+SENSITIVE_RESPONSE_FIELD_MARKERS = {
+    "email", "phone", "phonenumber", "mobile", "address",
+    "dateofbirth", "birthdate", "nationalid", "ssn",
+    "passport", "accountnumber", "bankaccount", "balance",
+    "paymentdetails", "customerid", "userid", "personaldata",
+}
+
+
+def _anonymous_api_sensitive_fields(content_type, body):
+    """Return non-empty personal-data field names, never response values."""
+    if "json" not in str(content_type or "").lower():
+        return []
+
+    try:
+        payload = json.loads(
+            body.decode("utf-8", errors="replace")
+            if isinstance(body, bytes) else str(body or "")
+        )
+    except (ValueError, TypeError):
+        return []
+
+    found = set()
+    pending = [payload]
+    visited = 0
+
+    while pending and visited < 5000:
+        current = pending.pop()
+        visited += 1
+
+        if isinstance(current, dict):
+            for key, value in current.items():
+                normalized = re.sub(
+                    r"[^a-z0-9]", "", str(key).lower()
+                )
+                if (
+                    normalized in SENSITIVE_RESPONSE_FIELD_MARKERS
+                    and value not in (None, "", False, [], {})
+                ):
+                    found.add(str(key)[:80])
+
+                if isinstance(value, (dict, list)):
+                    pending.append(value)
+
+        elif isinstance(current, list):
+            pending.extend(
+                item for item in current
+                if isinstance(item, (dict, list))
+            )
+
+    return sorted(found)[:30]
+
+
+def _safe_anonymous_get_endpoint(endpoint, origin):
+    """Select only explicit, same-origin, parameter-free API GET routes."""
+    if str(endpoint.method or "").upper() != "GET":
+        return None
+
+    endpoint_type = str(endpoint.endpoint_type or "").lower()
+    if not any(marker in endpoint_type for marker in (
+        "api", "graphql", "openapi",
+    )):
+        return None
+
+    try:
+        parsed = urlsplit(str(endpoint.url or ""))
+        base = urlsplit(origin)
+
+        if (
+            parsed.scheme.lower() != "https"
+            or parsed.hostname != base.hostname
+            or parsed.port not in (None, 443)
+            or parsed.username is not None
+            or parsed.password is not None
+        ):
+            return None
+
+        path = parsed.path or "/"
+        if "{" in path or "}" in path or len(path) > 1500:
+            return None
+
+        blocked = SKIP_PATH_WORDS | {
+            "search", "export", "download", "report", "generate",
+            "callback", "redirect", "webhook", "create", "update",
+            "send", "invite", "reset", "verify", "confirm",
+        }
+        segments = {
+            segment.lower() for segment in path.split("/") if segment
+        }
+        if segments.intersection(blocked):
+            return None
+
+        # Deliberately discard all query strings: discovered parameter values
+        # may contain identifiers, tokens, or other user-supplied data.
+        return urlunsplit(("https", parsed.netloc, path, "", ""))
+
+    except (ValueError, TypeError):
+        return None
+
+
+
 SECURITY_HEADERS = {
     "strict-transport-security": "HTTP Strict Transport Security",
     "content-security-policy": "Content Security Policy",
