@@ -17,7 +17,7 @@ DOMAIN_RE = re.compile(
     r"((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,})"
     r"(?![a-z0-9_-])"
 )
-URL_RE = re.compile(r"(?i)https://[^\s<>\"']{1,2048}")
+URL_RE = re.compile(r"(?i)https?://[^\s<>\"']{1,2048}")
 CIDR_RE = re.compile(r"(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}/\d{1,2}(?![\w.])")
 IPV4_RE = re.compile(r"(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?![\w./])")
 
