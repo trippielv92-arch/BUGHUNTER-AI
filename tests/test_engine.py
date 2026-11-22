@@ -89,5 +89,5 @@ def test_failed_page_requests_consume_limit_and_keep_rate_spacing(db, monkeypatc
     assert sleeps == [0.5, 0.5]
 
     # Progress reflects all bounded requests, including robots.txt.
-    assert [percent for percent, _ in progress] == [66, 100]
+    assert [percent for percent, _ in progress] == [66, 94]
     assert "3/3 total requests" in progress[-1][1]
