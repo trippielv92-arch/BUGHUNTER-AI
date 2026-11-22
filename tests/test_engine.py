@@ -162,3 +162,17 @@ def test_hunt_request_budget_increased_but_remains_bounded():
     assert engine.MAX_PAGES == 100
     assert len(engine.EXPOSURE_PROBE_PATHS) > 5
     assert "/v3/api-docs" in engine.API_DOCUMENTATION_PATHS
+
+
+def test_empty_sensitive_config_fields_do_not_trigger_exposure_finding():
+    assert engine._exposure_probe_indicator(
+        "/config.json",
+        200,
+        b'{"clientSecret":"","apiKey":null,"databaseUrl":""}',
+    ) is None
+
+
+def test_environment_file_marker_requires_nonempty_value():
+    assert engine._exposure_probe_indicator(
+        "/.env", 200, b"APP_KEY=\\nDATABASE_URL=\\n"
+    ) is None
