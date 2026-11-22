@@ -121,7 +121,8 @@ RULE_PATTERNS = {
     "vulnerability_eligibility": (
         r"\bnot eligible\b", r"\bineligible\b",
         r"\bnot accepted\b", r"\baccepted vulnerabilities?\b",
-        r"\beligible reports?\b", r"\bvalid vulnerability reports?\b",
+        r"\beligible\b.{0,80}\b(?:reports?|vulnerabilities|issues)\b",
+        r"\bvalid vulnerability reports?\b",
         r"\bout of scope\b",
     ),
     "reward_and_severity": (
