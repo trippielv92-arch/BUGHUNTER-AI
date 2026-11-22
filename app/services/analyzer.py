@@ -158,7 +158,7 @@ def analyze_programme(url, manual_policy=""):
             for node in soup(["script", "style", "noscript"]):
                 node.decompose()
 
-            text = soup.get_text(" ", strip=True)[:200000]
+            text = soup.get_text("\n", strip=True)[:200000]
             if not text:
                 raise ValueError("The retrieved page contained no readable policy text.")
             source = "public webpage"
@@ -201,5 +201,6 @@ def analyze_programme(url, manual_policy=""):
         "policy": intelligence["policy"],
         "scope": intelligence["scope"],
         "policy_topics": intelligence["policy_topics"],
+        "rules": intelligence["rules"],
         "warnings": intelligence["warnings"],
     }
