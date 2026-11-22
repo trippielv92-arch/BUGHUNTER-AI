@@ -1052,6 +1052,29 @@ def add_program_asset_to_scope_api(
     if candidate is None:
         raise HTTPException(status_code=404, detail="Candidate not found.")
 
+    from app.models.entities import ProgramPolicy
+    latest_policy = db.scalar(
+        select(ProgramPolicy)
+        .where(ProgramPolicy.project_id == project_id)
+        .order_by(ProgramPolicy.version_number.desc())
+        .limit(1)
+    )
+    if latest_policy is None or candidate.policy_id != latest_policy.id:
+        raise HTTPException(
+            status_code=409,
+            detail="This candidate belongs to an older policy version. Re-analyze and review the latest policy.",
+        )
+
+    if candidate.asset_type not in {"hostname", "ip_address"}:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "This asset type cannot be converted into a single-host scope entry. "
+                "Wildcard, CIDR and URL candidates must remain unapproved until "
+                "their exact authorization boundaries can be represented."
+            ),
+        )
+
     if candidate.review_status != "accepted":
         raise HTTPException(
             status_code=409,
