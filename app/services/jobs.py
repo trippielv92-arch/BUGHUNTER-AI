@@ -57,7 +57,7 @@ def create_job(db, project_id, job_type):
 
 
 
-def create_hunt_job(db, project_id, start_url, max_pages=15):
+def create_hunt_job(db, project_id, start_url, max_pages=100):
     """Queue one authorized hunt for the independent background service."""
     from app.services.workflows import validate_target
 
@@ -69,8 +69,8 @@ def create_hunt_job(db, project_id, start_url, max_pages=15):
     if not isinstance(start_url, str) or not start_url.strip():
         raise ValueError("An HTTPS target URL is required.")
     if (not isinstance(max_pages, int) or isinstance(max_pages, bool)
-            or not 1 <= max_pages <= 25):
-        raise ValueError("Page limit must be between 1 and 25.")
+            or not 1 <= max_pages <= 100):
+        raise ValueError("Page limit must be between 1 and 100.")
 
     parsed = validate_target(db, project_id, start_url.strip())
     if parsed.scheme.lower() != "https" or parsed.port not in (None, 443):
