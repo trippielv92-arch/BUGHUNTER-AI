@@ -423,7 +423,7 @@ class Window(QMainWindow):
     job = self.api_client.start_hunt(
      project_id,
      f"https://{host}/",
-     max_pages=25,
+     max_pages=100,
     )
     queued.append((job.get("id"), host))
 
