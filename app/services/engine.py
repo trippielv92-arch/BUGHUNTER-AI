@@ -2853,29 +2853,9 @@ def run_website_analysis(
                 probe = _read_limited_response(client, probe_url)
                 status = probe["status"]
                 body = probe["body"].decode("utf-8", errors="replace")
-                indicator = None
-
-                if status == 200 and probe_path == "/.env":
-                    if re.search(
-                        r"(?im)^\s*(?:APP_KEY|DB_PASSWORD|DATABASE_URL|"
-                        r"SECRET_KEY|AWS_SECRET_ACCESS_KEY|API_KEY)\s*=",
-                        body,
-                    ):
-                        indicator = "Environment-variable configuration markers"
-
-                elif status == 200 and probe_path == "/.git/HEAD":
-                    if re.match(r"(?im)^\s*ref:\s+refs/", body):
-                        indicator = "Git repository HEAD reference"
-
-                elif status == 200 and probe_path == "/actuator/env":
-                    if "propertySources" in body and (
-                        "activeProfiles" in body or '"property"' in body
-                    ):
-                        indicator = "Spring actuator environment metadata"
-
-                elif status == 200 and probe_path == "/config.json":
-                    # Reserved for future use; not requested in this probe set.
-                    pass
+                indicator = _exposure_probe_indicator(
+                    probe_path, status, probe["body"]
+                )
 
                 if indicator:
                     stats["exposure_indicators"] += 1
@@ -2904,9 +2884,7 @@ def run_website_analysis(
                         ),
                     )
 
-                elif status == 200 and probe_path in (
-                    "/openapi.json", "/swagger.json"
-                ):
+                elif status == 200 and probe_path in API_DOCUMENTATION_PATHS:
                     api_notes = []
                     try:
                         document = json.loads(body[:500000])
