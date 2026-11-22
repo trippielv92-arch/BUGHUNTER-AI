@@ -1,70 +1,73 @@
-"""Provider-aware, conservative bug bounty program policy intelligence.
+"""Provider-aware, conservative bug bounty policy intelligence.
 
-This module extracts review candidates only. It never authorizes assets,
-approves scope, or initiates target testing.
+The parser extracts candidates and policy rules from public or imported
+programme text. It never authorizes assets, approves scope, or contacts
+candidate targets. Ambiguous and path-limited scope remains unapproved.
 """
 
 import hashlib
+import ipaddress
 import re
 from urllib.parse import urlparse
 
 
 DOMAIN_RE = re.compile(
     r"(?i)(?<![a-z0-9_-])"
-    r"(\*\.)?"
-    r"((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,})"
+    r"(\\*\\.)?"
+    r"((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,})"
     r"(?![a-z0-9_-])"
 )
+URL_RE = re.compile(r"(?i)https://[^\\s<>\"']{1,2048}")
+CIDR_RE = re.compile(r"(?<![\\w.])(?:\\d{1,3}\\.){3}\\d{1,3}/\\d{1,2}(?![\\w.])")
+IPV4_RE = re.compile(r"(?<![\\w.])(?:\\d{1,3}\\.){3}\\d{1,3}(?![\\w./])")
 
 PROVIDERS = {
-    "hackerone": {
-        "domains": ("hackerone.com",),
-        "name": "HackerOne",
-    },
-    "bugcrowd": {
-        "domains": ("bugcrowd.com",),
-        "name": "Bugcrowd",
-    },
-    "intigriti": {
-        "domains": ("intigriti.com",),
-        "name": "Intigriti",
-    },
-    "yeswehack": {
-        "domains": ("yeswehack.com",),
-        "name": "YesWeHack",
-    },
-    "immunefi": {
-        "domains": ("immunefi.com",),
-        "name": "Immunefi",
-    },
-    "federacy": {
-        "domains": ("federacy.com",),
-        "name": "Federacy",
-    },
+    "hackerone": {"domains": ("hackerone.com",), "name": "HackerOne"},
+    "bugcrowd": {"domains": ("bugcrowd.com",), "name": "Bugcrowd"},
+    "intigriti": {"domains": ("intigriti.com",), "name": "Intigriti"},
+    "yeswehack": {"domains": ("yeswehack.com",), "name": "YesWeHack"},
+    "immunefi": {"domains": ("immunefi.com",), "name": "Immunefi"},
+    "federacy": {"domains": ("federacy.com",), "name": "Federacy"},
+    "openbugbounty": {"domains": ("openbugbounty.org",), "name": "OpenBugBounty"},
+    "hackenproof": {"domains": ("hackenproof.com",), "name": "HackenProof"},
+    "huntr": {"domains": ("huntr.com",), "name": "huntr"},
+    "patchstack": {"domains": ("patchstack.com",), "name": "Patchstack"},
+    "yogosha": {"domains": ("yogosha.com",), "name": "Yogosha"},
 }
 
 EXCLUDED_PATTERNS = (
-    r"\bout\s+of\s+scope\b",
-    r"\bexcluded?\b",
-    r"\bnot\s+in\s+scope\b",
-    r"\bprohibited\s+assets?\b",
-    r"\bdo\s+not\s+test\b",
-    r"\bnot\s+eligible\b",
-    r"\bexplicitly\s+excluded\b",
+    r"\\bout\\s+of\\s+scope\\b",
+    r"\\bexcluded?\\b",
+    r"\\bnot\\s+in\\s+scope\\b",
+    r"\\bprohibited\\s+assets?\\b",
+    r"\\bdo\\s+not\\s+test\\b",
+    r"\\bnot\\s+eligible\\b",
+    r"\\bexplicitly\\s+excluded\\b",
+    r"\\bno\\s+testing\\b",
+)
+INCLUDED_PATTERNS = (
+    r"\\bin\\s+scope\\b",
+    r"\\bincluded\\s+assets?\\b",
+    r"\\beligible\\s+assets?\\b",
+    r"\\btargets?\\s+in\\s+scope\\b",
+    r"\\bassets?\\s+covered\\s+by\\s+this\\s+program\\b",
+    r"\\btesting\\s+is\\s+permitted\\b",
 )
 
-INCLUDED_PATTERNS = (
-    r"\bin\s+scope\b",
-    r"\bincluded\s+assets?\b",
-    r"\beligible\s+assets?\b",
-    r"\btargets?\s+in\s+scope\b",
-    r"\bassets?\s+covered\s+by\s+this\s+program\b",
+SECTION_EXCLUDED = re.compile(
+    r"^(?:out[- ]of[- ]scope|excluded(?:\\s+assets?)?|prohibited(?:\\s+assets?)?|"
+    r"not\\s+in\\s+scope)\\s*:?$", re.I
+)
+SECTION_INCLUDED = re.compile(
+    r"^(?:in[- ]scope|included(?:\\s+assets?)?|eligible(?:\\s+assets?)?|"
+    r"scope\\s+assets?)\\s*:?$", re.I
 )
 
 POLICY_TOPICS = {
     "testing_restrictions": (
         "rate limit", "denial of service", "automated scanner",
         "social engineering", "destructive", "brute force",
+        "physical security", "spam", "availability testing",
     ),
     "disclosure": (
         "responsible disclosure", "coordinated disclosure",
@@ -84,198 +87,260 @@ POLICY_TOPICS = {
     ),
 }
 
+RULE_PATTERNS = {
+    "prohibited_activities": (
+        r"\\bdenial[- ]of[- ]service\\b", r"\\bddos\\b",
+        r"\\bbrute[- ]force\\b", r"\\bsocial engineering\\b",
+        r"\\bphishing\\b", r"\\bspam(?:ming)?\\b",
+        r"\\bphysical attacks?\\b", r"\\bdestructive testing\\b",
+        r"\\bautomated scanners?\\b", r"\\bload testing\\b",
+        r"\\bavailability testing\\b",
+    ),
+    "authentication_requirements": (
+        r"\\btest accounts?\\b", r"\\bprovided credentials\\b",
+        r"\\bmulti[- ]factor authentication\\b",
+        r"\\baccount registration\\b",
+    ),
+    "disclosure_requirements": (
+        r"\\bresponsible disclosure\\b", r"\\bcoordinated disclosure\\b",
+        r"\\bdo not publicly disclose\\b", r"\\bpublic disclosure\\b",
+    ),
+    "rate_limit_rules": (
+        r"\\b\\d+\\s*(?:requests?|reqs?)\\s*(?:per|/)\\s*(?:second|minute|hour)\\b",
+        r"\\brate limit\\b", r"\\brequest rate\\b",
+        r"\\brequests per second\\b",
+    ),
+    "data_handling_rules": (
+        r"\\bpersonal data\\b", r"\\bpersonally identifiable\\b",
+        r"\\bpii\\b", r"\\bdelete test data\\b",
+        r"\\bdo not access real user data\\b",
+    ),
+}
+
 
 def identify_provider(programme_url):
-    """Identify a known platform from the program URL hostname."""
+    """Identify a known platform by hostname; unknown providers use generic parsing."""
     host = (urlparse(programme_url).hostname or "").lower().rstrip(".")
-
     for provider_id, details in PROVIDERS.items():
-        if any(
-            host == domain or host.endswith("." + domain)
-            for domain in details["domains"]
-        ):
+        if any(host == domain or host.endswith("." + domain)
+               for domain in details["domains"]):
             return {
                 "id": provider_id,
                 "name": details["name"],
                 "confidence": "high",
-                # Provider recognition exists; API adapters are not implemented yet.
                 "adapter_available": False,
+                "analysis_mode": "generic_policy_parser",
             }
-
     return {
         "id": "unknown",
         "name": "Unknown / direct program",
         "confidence": "low",
         "adapter_available": False,
+        "analysis_mode": "generic_policy_parser",
     }
 
 
-def _classify_context(context):
-    """Only classify assets when nearby policy wording is explicit."""
-    text = context.lower()
+def _split_units(policy_text):
+    """Keep policy list/table boundaries and split compact semicolon clauses."""
+    units = []
+    for raw_line in str(policy_text).replace("\\r", "\\n").split("\\n"):
+        line = re.sub(r"\\s+", " ", raw_line).strip()
+        if not line:
+            continue
+        # A single scraped paragraph may contain both inclusion and exclusion.
+        parts = re.split(r"\\s+[;|]\\s+|\\s+•\\s+", line)
+        units.extend(part.strip(" -\\t") for part in parts if part.strip(" -\\t"))
+    return units
 
+
+def _section_state(unit, current):
+    heading = re.sub(r"^#+\\s*", "", unit).strip().rstrip(":").strip()
+    if SECTION_EXCLUDED.fullmatch(heading):
+        return "excluded"
+    if SECTION_INCLUDED.fullmatch(heading):
+        return "included_candidate"
+    return current
+
+
+def _classify_context(context, section=""):
+    text = str(context or "").lower()
     if any(re.search(pattern, text) for pattern in EXCLUDED_PATTERNS):
         return "excluded", "medium"
-
+    if section == "excluded":
+        return "excluded", "medium"
     if any(re.search(pattern, text) for pattern in INCLUDED_PATTERNS):
         return "included_candidate", "medium"
-
+    if section == "included_candidate":
+        return "included_candidate", "low"
     return "ambiguous", "low"
 
 
+def _record_asset(records, asset, asset_type, disposition, confidence, evidence):
+    existing = records.get(asset)
+    if existing is None:
+        records[asset] = {
+            "asset": asset,
+            "type": asset_type,
+            "disposition": disposition,
+            "confidence": confidence,
+            "evidence": [evidence[:800]] if evidence else [],
+        }
+        return
+    # An explicit exclusion always wins over any conflicting inclusion clue.
+    if disposition == "excluded":
+        existing["disposition"] = "excluded"
+        existing["confidence"] = confidence
+    elif disposition == "included_candidate" and existing["disposition"] != "excluded":
+        existing["disposition"] = "included_candidate"
+        existing["confidence"] = confidence
+    if evidence and evidence[:800] not in existing["evidence"]:
+        existing["evidence"].append(evidence[:800])
+
+
 def _extract_assets(policy_text, programme_url):
-    lines = policy_text.splitlines()
-    occurrences = {}
+    units = _split_units(policy_text)
+    records = {}
+    provider_host = (urlparse(programme_url).hostname or "").lower().rstrip(".")
+    section = ""
 
-    provider_host = (
-        urlparse(programme_url).hostname or ""
-    ).lower().rstrip(".")
+    for unit in units:
+        section = _section_state(unit, section)
+        if SECTION_EXCLUDED.fullmatch(re.sub(r"^#+\\s*", "", unit).strip().rstrip(":").strip()):
+            continue
+        if SECTION_INCLUDED.fullmatch(re.sub(r"^#+\\s*", "", unit).strip().rstrip(":").strip()):
+            continue
 
-    for index, line in enumerate(lines):
-        matches = list(DOMAIN_RE.finditer(line))
+        disposition, confidence = _classify_context(unit, section)
 
-        for match in matches:
-            wildcard = bool(match.group(1))
-            hostname = match.group(2).lower().rstrip(".")
-
-            if hostname == provider_host:
+        # Preserve full URL paths: a host-only scope record would broaden access.
+        url_spans = []
+        for match in URL_RE.finditer(unit):
+            raw_url = match.group(0).rstrip(".,);]")
+            try:
+                parsed = urlparse(raw_url)
+                host = (parsed.hostname or "").lower().rstrip(".")
+                if not host or host == provider_host:
+                    continue
+                asset = raw_url
+                asset_type = "url_path" if parsed.path not in ("", "/") or parsed.query else "url"
+                _record_asset(records, asset, asset_type, disposition, confidence, unit)
+                url_spans.append(match.span())
+            except ValueError:
                 continue
 
-            # Include nearby lines because policy tables and lists often
-            # place the scope label immediately before or after an asset.
-            context_start = max(0, index - 1)
-            context_end = min(len(lines), index + 2)
-            context = "\n".join(lines[context_start:context_end]).strip()
-
-            disposition, confidence = _classify_context(context)
+        for match in DOMAIN_RE.finditer(unit):
+            if any(start <= match.start() < end for start, end in url_spans):
+                continue
+            wildcard = bool(match.group(1))
+            hostname = match.group(2).lower().rstrip(".")
+            if hostname == provider_host:
+                continue
             asset = ("*." if wildcard else "") + hostname
-
-            record = occurrences.setdefault(
-                asset,
-                {
-                    "asset": asset,
-                    "type": "wildcard_hostname" if wildcard else "hostname",
-                    "disposition": disposition,
-                    "confidence": confidence,
-                    "evidence": [],
-                },
+            _record_asset(
+                records, asset,
+                "wildcard_hostname" if wildcard else "hostname",
+                disposition, confidence, unit,
             )
 
-            # A clear exclusion takes precedence over an inclusion clue.
-            if disposition == "excluded":
-                record["disposition"] = "excluded"
-                record["confidence"] = confidence
-            elif (
-                disposition == "included_candidate"
-                and record["disposition"] != "excluded"
-            ):
-                record["disposition"] = "included_candidate"
-                record["confidence"] = confidence
+        for match in CIDR_RE.finditer(unit):
+            try:
+                network = ipaddress.ip_network(match.group(0), strict=False)
+            except ValueError:
+                continue
+            _record_asset(records, str(network), "cidr_network", disposition, confidence, unit)
 
-            if context and context not in record["evidence"]:
-                record["evidence"].append(context[:600])
+        # Standalone IPs are candidates; avoid duplicating addresses in CIDRs.
+        cidr_spans = [m.span() for m in CIDR_RE.finditer(unit)]
+        for match in IPV4_RE.finditer(unit):
+            if any(start <= match.start() < end for start, end in cidr_spans):
+                continue
+            try:
+                address = ipaddress.ip_address(match.group(0))
+            except ValueError:
+                continue
+            _record_asset(records, str(address), "ip_address", disposition, confidence, unit)
 
-    return sorted(
-        occurrences.values(),
-        key=lambda item: (
-            item["disposition"],
-            item["asset"],
-        ),
-    )
+    return sorted(records.values(), key=lambda item: (item["disposition"], item["asset"]))
 
 
 def _extract_topics(policy_text):
     lowered = policy_text.lower()
-    result = {}
-
-    for topic, phrases in POLICY_TOPICS.items():
-        matches = [
-            phrase for phrase in phrases
-            if phrase in lowered
-        ]
-        if matches:
-            result[topic] = matches
-
-    return result
+    return {
+        topic: [phrase for phrase in phrases if phrase in lowered]
+        for topic, phrases in POLICY_TOPICS.items()
+        if any(phrase in lowered for phrase in phrases)
+    }
 
 
 def _extract_policy_clues(policy_text):
-    keys = [
-        "rate limit",
-        "automated scanner",
-        "denial of service",
-        "social engineering",
-        "out of scope",
-        "in scope",
-        "authentication",
-        "disclosure",
-        "safe harbor",
-        "test account",
-    ]
-
+    keys = (
+        "rate limit", "automated scanner", "denial of service",
+        "social engineering", "out of scope", "in scope",
+        "authentication", "disclosure", "safe harbor", "test account",
+    )
     clues = {}
     for key in keys:
-        found = list(re.finditer(re.escape(key), policy_text, re.I))
-        if found:
+        matches = list(re.finditer(re.escape(key), policy_text, re.I))
+        if matches:
             clues[key] = [
-                policy_text[max(0, match.start() - 100):
-                            min(len(policy_text), match.end() + 180)]
-                for match in found[:5]
+                policy_text[max(0, match.start() - 120):
+                            min(len(policy_text), match.end() + 220)]
+                for match in matches[:8]
             ]
-
     return clues
 
 
+def _extract_rules(policy_text):
+    sentences = [
+        item.strip()
+        for item in re.split(r"(?<=[.!?])\\s+|\\n+", policy_text)
+        if item.strip()
+    ]
+    rules = {}
+    for category, patterns in RULE_PATTERNS.items():
+        found = []
+        for sentence in sentences:
+            if any(re.search(pattern, sentence, re.I) for pattern in patterns):
+                compact = re.sub(r"\\s+", " ", sentence).strip()
+                if compact not in found:
+                    found.append(compact[:1000])
+        if found:
+            rules[category] = found[:50]
+    return rules
+
+
 def analyze_program_policy(programme_url, policy_text, source="manual policy text"):
-    """Build a conservative structured interpretation of supplied policy text."""
+    """Return structured policy interpretation and candidate assets."""
     if not isinstance(policy_text, str) or not policy_text.strip():
         raise ValueError("Policy text is empty.")
-
     text = policy_text.strip()
     provider = identify_provider(programme_url)
     assets = _extract_assets(text, programme_url)
 
-    included = [
-        item for item in assets
-        if item["disposition"] == "included_candidate"
-    ]
-    excluded = [
-        item for item in assets
-        if item["disposition"] == "excluded"
-    ]
-    ambiguous = [
-        item for item in assets
-        if item["disposition"] == "ambiguous"
-    ]
-
-    fingerprint = hashlib.sha256(
-        text.encode("utf-8")
-    ).hexdigest()
+    included = [item for item in assets if item["disposition"] == "included_candidate"]
+    excluded = [item for item in assets if item["disposition"] == "excluded"]
+    ambiguous = [item for item in assets if item["disposition"] == "ambiguous"]
+    fingerprint = hashlib.sha256(text.encode("utf-8")).hexdigest()
 
     if included and excluded:
         extraction_confidence = "medium"
-    elif included:
-        extraction_confidence = "low"
     else:
         extraction_confidence = "low"
 
     warnings = [
         "Extracted assets are candidates, not approved scope.",
-        "Wildcard hostnames are preserved and are not expanded.",
-        "Exclusions must be reviewed before any scope approval.",
-        "Provider identification does not prove that the policy was retrieved from an official API.",
+        "Wildcard hostnames, CIDR ranges, IPs and path-limited URLs are not expanded or automatically authorized.",
+        "Exclusions take precedence over conflicting inclusion clues.",
+        "Generic policy parsing is used; provider recognition does not imply a provider API adapter.",
+        "Policy rules are extracted as review evidence and may require interpretation in their original context.",
     ]
-
     if not included:
-        warnings.append(
-            "No clearly labeled included assets were extracted. "
-            "Review the official policy and add exact assets manually."
-        )
-
+        warnings.append("No clearly included hostname candidates were extracted.")
     if ambiguous:
-        warnings.append(
-            "Some hostnames lack clear inclusion or exclusion context."
-        )
+        warnings.append("Some assets lack clear inclusion or exclusion context.")
+    if any(item["type"] in {"url_path", "cidr_network", "ip_address", "wildcard_hostname"}
+           for item in assets):
+        warnings.append("Non-hostname or broad-scope candidates need separate scope handling and cannot be proposed as ordinary host assets.")
 
     return {
         "provider": provider,
@@ -295,5 +360,6 @@ def analyze_program_policy(programme_url, policy_text, source="manual policy tex
         },
         "policy_topics": _extract_topics(text),
         "policy_clues": _extract_policy_clues(text),
+        "rules": _extract_rules(text),
         "warnings": warnings,
     }
