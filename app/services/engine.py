@@ -2524,6 +2524,8 @@ def run_website_analysis(
         "credentialed_api_requests": 0,
         "credential_profiles_used": 0,
         "credentialed_response_differences": 0,
+        "role_comparisons_completed": 0,
+        "role_differences_observed": 0,
         "client_routes_discovered": 0,
         "javascript_assets_checked": 0,
         "source_maps_discovered": 0,
@@ -3535,6 +3537,7 @@ def run_website_analysis(
                 db.commit()
 
     credential_checks_remaining = False
+    authorization_observations = []
     # Optional credentialed comparison uses only encrypted profiles
     # attached to this exact approved host. Tokens are passed per request,
     # never placed in job input, logs, URLs, or evidence.
@@ -3667,6 +3670,13 @@ def run_website_analysis(
                             "was observed for this request."
                         ),
                     }
+                    authorization_observations.append({
+                        "endpoint": endpoint_url,
+                        "role_label": role_label,
+                        "status": status,
+                        "sensitive_field_names": field_names,
+                        "response_truncated": bool(response.get("truncated")),
+                    })
                     _save_check(
                         db, project_id, endpoint_url,
                         "Credentialed API access comparison",
@@ -3705,6 +3715,29 @@ def run_website_analysis(
         credential_checks_remaining = (
             credential_request_count < maximum_credential_requests
         )
+
+    if authorization_observations:
+        from app.services.authorization_analysis import (
+            summarize_role_authorization_observations,
+        )
+
+        role_summaries = summarize_role_authorization_observations(
+            authorization_observations
+        )
+        for summary in role_summaries:
+            difference = summary["behavioral_difference_observed"]
+            stats["role_comparisons_completed"] += 1
+            stats["role_differences_observed"] += int(difference)
+            _save_check(
+                db,
+                project_id,
+                summary["endpoint"],
+                "Role-based authorization evidence summary",
+                "difference_observed" if difference else "completed",
+                json.dumps(summary, ensure_ascii=False)[:8000],
+            )
+        if role_summaries:
+            db.commit()
 
     endpoint_checks_remaining = bool(
         endpoint_reserve
