@@ -29,8 +29,14 @@ def derive_project_fingerprint_key(project_id):
         raise RuntimeError(
             "BUGHUNTER_CREDENTIAL_ENCRYPTION_KEY is required for owned-resource mappings."
         )
+    try:
+        key_bytes = key.encode("ascii")
+    except UnicodeEncodeError as exc:
+        raise RuntimeError(
+            "BUGHUNTER_CREDENTIAL_ENCRYPTION_KEY must be valid ASCII."
+        ) from exc
     return hmac.new(
-        key.encode("ascii"),
+        key_bytes,
         f"bughunter-project:{int(project_id)}".encode("ascii"),
         hashlib.sha256,
     ).digest()
