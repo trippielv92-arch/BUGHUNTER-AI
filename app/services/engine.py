@@ -78,6 +78,39 @@ API_DOCUMENTATION_PATHS = (
 DIAGNOSTIC_ORIGIN = "https://bughunter-ai.invalid"
 
 
+def _has_nonempty_sensitive_config_field(text):
+    """Inspect JSON property names and presence only; never return field values."""
+    try:
+        payload = json.loads(text[:500000])
+    except (ValueError, TypeError):
+        return False
+
+    sensitive_names = {
+        "apikey", "clientsecret", "accesstoken", "privatekey",
+        "databaseurl", "jwtsecret", "secretkey", "password",
+    }
+    pending = [payload]
+    visited = 0
+    while pending and visited < 5000:
+        current = pending.pop()
+        visited += 1
+        if isinstance(current, dict):
+            for key, value in current.items():
+                normalized = re.sub(r"[^a-z0-9]", "", str(key).lower())
+                if normalized in sensitive_names and value not in (
+                    None, "", False, [], {}
+                ):
+                    return True
+                if isinstance(value, (dict, list)):
+                    pending.append(value)
+        elif isinstance(current, list):
+            pending.extend(
+                value for value in current
+                if isinstance(value, (dict, list))
+            )
+    return False
+
+
 def _exposure_probe_indicator(probe_path, status, body):
     """Return a marker label only; never return or persist response secrets."""
     if status != 200:
@@ -105,12 +138,8 @@ def _exposure_probe_indicator(probe_path, status, body):
             return "Spring actuator environment metadata"
 
     elif probe_path == "/config.json":
-        if re.search(
-            r'(?i)"(?:api[_-]?key|client[_-]?secret|access[_-]?token|'
-            r'private[_-]?key|database[_-]?url|jwt[_-]?secret)"\s*:',
-            text,
-        ):
-            return "Sensitive configuration property names"
+        if _has_nonempty_sensitive_config_field(text):
+            return "Non-empty sensitive configuration field"
 
     elif probe_path == "/phpinfo.php":
         if (
