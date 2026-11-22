@@ -263,3 +263,19 @@ def test_email_addresses_and_provider_subdomains_are_not_target_assets():
     assert "acme.test" not in candidates
     assert "support.hackerone.com" not in candidates
     assert "app.acme.test" in candidates
+
+
+def test_ban_on_all_automated_tools_also_disables_passive_discovery():
+    controls = derive_policy_execution_controls(
+        "No automated tools are allowed against programme assets."
+    )
+    assert controls["active_automated_testing_allowed"] is False
+    assert controls["passive_discovery_allowed"] is False
+
+
+def test_scanner_only_ban_keeps_non_active_passive_discovery_separate():
+    controls = derive_policy_execution_controls(
+        "Automated scanners are prohibited."
+    )
+    assert controls["active_automated_testing_allowed"] is False
+    assert controls["passive_discovery_allowed"] is True
