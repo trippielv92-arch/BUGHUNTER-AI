@@ -487,7 +487,12 @@ def _is_safe_page(url, origin):
 
 def _read_limited_response(client, url, request_headers=None):
     """Read a bounded response; optional per-request headers are never logged."""
-    with client.stream("GET", url, headers=request_headers or {}) as response:
+    stream = (
+        client.stream("GET", url, headers=request_headers)
+        if request_headers is not None
+        else client.stream("GET", url)
+    )
+    with stream as response:
         chunks = []
         total = 0
         truncated = False
