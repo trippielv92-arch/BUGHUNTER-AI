@@ -176,3 +176,79 @@ def test_environment_file_marker_requires_nonempty_value():
     assert engine._exposure_probe_indicator(
         "/.env", 200, b"APP_KEY=\nDATABASE_URL=\n"
     ) is None
+
+
+def test_anonymous_api_classifier_records_names_not_personal_values():
+    body = (
+        b'{"profile":{"email":"private@example.test",'
+        b'"phoneNumber":"+254700000000","displayName":"Public User"}}'
+    )
+    fields = engine._anonymous_api_sensitive_fields(
+        "application/json", body
+    )
+    assert fields == ["email", "phoneNumber"]
+    assert "private@example.test" not in str(fields)
+    assert "+254700000000" not in str(fields)
+
+
+def test_anonymous_api_classifier_ignores_empty_and_non_json_fields():
+    assert engine._anonymous_api_sensitive_fields(
+        "application/json",
+        b'{"email":"","phone":null,"balance":0}',
+    ) == []
+    assert engine._anonymous_api_sensitive_fields(
+        "text/html", b'{"email":"private@example.test"}'
+    ) == []
+
+
+def test_anonymous_api_endpoint_selection_is_get_only_and_same_host():
+    from types import SimpleNamespace
+
+    endpoint = SimpleNamespace(
+        method="GET",
+        endpoint_type="OpenAPI documented API operation",
+        url="https://example.com/api/users?email=private%40example.test",
+    )
+    assert engine._safe_anonymous_get_endpoint(
+        endpoint, "https://example.com"
+    ) == "https://example.com/api/users"
+
+    endpoint.method = "POST"
+    assert engine._safe_anonymous_get_endpoint(
+        endpoint, "https://example.com"
+    ) is None
+
+    endpoint.method = "GET"
+    endpoint.url = "https://outside.example/api/users"
+    assert engine._safe_anonymous_get_endpoint(
+        endpoint, "https://example.com"
+    ) is None
+
+
+def test_anonymous_api_endpoint_selection_skips_templates_and_risky_routes():
+    from types import SimpleNamespace
+
+    endpoint = SimpleNamespace(
+        method="GET",
+        endpoint_type="Client-side API route",
+        url="https://example.com/api/users/{user_id}",
+    )
+    assert engine._safe_anonymous_get_endpoint(
+        endpoint, "https://example.com"
+    ) is None
+
+    endpoint.url = "https://example.com/api/logout"
+    assert engine._safe_anonymous_get_endpoint(
+        endpoint, "https://example.com"
+    ) is None
+
+    endpoint.url = "https://example.com/dashboard"
+    endpoint.endpoint_type = "Web page"
+    assert engine._safe_anonymous_get_endpoint(
+        endpoint, "https://example.com"
+    ) is None
+
+
+def test_anonymous_api_assessment_is_explicitly_bounded():
+    assert engine.ENDPOINT_ASSESSMENT_LIMIT == 12
+    assert engine.MAX_PAGES == 100
