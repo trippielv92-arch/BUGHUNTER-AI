@@ -187,11 +187,11 @@ def run_job(job_id, project_id, owner_id):
 
         config = json.loads(job.input_json or "{}")
         target = config.get("start_url")
-        max_pages = config.get("max_pages", 15)
+        max_pages = config.get("max_pages", 100)
 
         if not isinstance(target, str):
             raise ValueError("Hunt target is missing.")
-        if not isinstance(max_pages, int) or not 1 <= max_pages <= 25:
+        if not isinstance(max_pages, int) or not 1 <= max_pages <= 100:
             raise ValueError("Invalid hunt page limit.")
 
         log.info("Claimed hunt %s for project %s", job_id, project_id)
