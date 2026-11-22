@@ -195,7 +195,10 @@ def run_job(job_id, project_id, owner_id):
         }
 
         # Phase 1: DNS and certificate-transparency discovery.
-        if config.get("passive_recon", True):
+        if (
+            config.get("passive_recon", True)
+            and policy_controls["passive_discovery_allowed"]
+        ):
             results["passive_recon"] = run_passive_recon(
                 db, project_id,
                 use_certificate_transparency=bool(
@@ -208,6 +211,18 @@ def run_job(job_id, project_id, owner_id):
                     "Passive discovery: " + str(msg),
                 ),
             )
+        elif config.get("passive_recon", True):
+            results["passive_recon"] = {
+                "skipped": True,
+                "reason": (
+                    "Passive discovery was skipped because the programme policy "
+                    "explicitly prohibits automated tools."
+                ),
+                "policy_evidence": policy_controls[
+                    "passive_discovery_prohibition_evidence"
+                ],
+                "network_requests": 0,
+            }
 
         if job_stop.is_set() or (results["passive_recon"] or {}).get("stopped"):
             current = db.execute(
