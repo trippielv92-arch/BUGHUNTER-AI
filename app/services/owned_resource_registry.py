@@ -145,9 +145,9 @@ def register_researcher_owned_resource(
     ):
         raise ValueError("Ownership attestation note must not contain the raw resource identifier.")
     if re.search(
-        r"(?i)\\b(?:authorization\\s*[:=]|cookie\\s*[:=]|"
-        r"session\\s*[:=]|token\\s*[:=]|api[_-]?key\\s*[:=]|"
-        r"password\\s*[:=]|secret\\s*[:=]|bearer\\s+[A-Za-z0-9._~+/=-]{12,})",
+        r"(?i)\b(?:authorization\s*[:=]|cookie\s*[:=]|"
+        r"session\s*[:=]|token\s*[:=]|api[_-]?key\s*[:=]|"
+        r"password\s*[:=]|secret\s*[:=]|bearer\s+[A-Za-z0-9._~+/=-]{12,})",
         note,
     ):
         raise ValueError("Ownership attestation note must not contain credentials or secret values.")
