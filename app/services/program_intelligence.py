@@ -373,8 +373,6 @@ def derive_policy_execution_controls(policy_text):
         r"(?:automated|automatic|scanner|scanning|tools?)\b)"
         r"|(?:\b(?:automated|automatic)\s+(?:scanners?|scanning|testing|tools?)\b"
         r".{0,100}\b(?:prohibited|forbidden|not allowed|not permitted|disallowed)\b)"
-        r"|(?:\bprohibit(?:s|ed)?\b.{0,100}\b"
-        r"(?:automated|automatic|scanner|scanning|tools?)\b)",
         re.I,
     )
     prohibited_sentences = [
