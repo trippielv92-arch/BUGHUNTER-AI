@@ -3,6 +3,7 @@ import json
 from app.services.object_reference_discovery import (
     discover_object_references,
     summarize_object_reference_observations,
+    correlate_registered_resource_summaries,
 )
 
 
@@ -60,6 +61,7 @@ def test_correlates_same_reference_across_test_account_roles():
     ])
     assert len(result) == 1
     assert result[0]["observed_across_multiple_roles"] is True
+    assert result[0]["registry_fingerprint"] is None
     assert result[0]["roles_observing_reference"] == ["owner", "viewer"]
     assert result[0]["ownership_verified"] is False
     assert result[0]["network_requests_to_candidate_references"] == 0
@@ -86,3 +88,63 @@ def test_summary_ignores_malformed_observations():
     assert summarize_object_reference_observations([
         None, {}, {"endpoint": "https://app.example.test", "candidate": {}}
     ]) == []
+
+def test_registry_fingerprint_matches_registry_service(monkeypatch):
+    from cryptography.fernet import Fernet
+    from app.services.owned_resource_registry import (
+        derive_project_fingerprint_key,
+        fingerprint_resource_reference,
+    )
+
+    monkeypatch.setenv(
+        "BUGHUNTER_CREDENTIAL_ENCRYPTION_KEY",
+        Fernet.generate_key().decode("ascii"),
+    )
+    reference = "synthetic-owned-record"
+    key = derive_project_fingerprint_key(7)
+    result = discover_object_references(
+        "application/json",
+        b'{"record_id":"synthetic-owned-record"}',
+        SALT,
+        fingerprint_key=key,
+    )
+    assert result[0]["registry_fingerprint"] == fingerprint_resource_reference(
+        reference, 7
+    )
+    assert result[0]["registry_fingerprint"] != result[0]["fingerprint"]
+
+
+def test_correlates_discovered_reference_to_attested_registry_without_verifying_ownership():
+    candidate = discover_object_references(
+        "application/json", b'{"id":"synthetic-owned-record"}',
+        SALT, fingerprint_key=b"project-scoped-test-key-material",
+    )[0]
+    summary = summarize_object_reference_observations([
+        {"endpoint": "https://example.test/api/orders", "role_label": "owner",
+         "candidate": candidate}
+    ])
+    matched = correlate_registered_resource_summaries(
+        summary,
+        [{"id": 77, "resource_fingerprint": candidate["registry_fingerprint"]}],
+    )
+    assert matched[0]["registered_resource_match"] is True
+    assert matched[0]["registered_owned_resource_id"] == 77
+    assert matched[0]["ownership_attested"] is True
+    assert matched[0]["ownership_verified"] is False
+    assert matched[0]["manual_ownership_mapping_required"] is False
+
+
+def test_unmatched_discovered_reference_stays_unmapped():
+    candidate = discover_object_references(
+        "application/json", b'{"id":"unmapped-record"}',
+        SALT, fingerprint_key=b"project-scoped-test-key-material",
+    )[0]
+    summary = summarize_object_reference_observations([
+        {"endpoint": "https://example.test/api/orders", "role_label": "owner",
+         "candidate": candidate}
+    ])
+    result = correlate_registered_resource_summaries(summary, [])
+    assert result[0]["registered_resource_match"] is False
+    assert result[0]["registered_owned_resource_id"] is None
+    assert result[0]["ownership_verified"] is False
+

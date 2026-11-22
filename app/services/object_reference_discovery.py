@@ -5,6 +5,7 @@ are returned. Raw identifiers and response values are never persisted. This
 module never makes network requests or replays discovered identifiers.
 """
 import hashlib
+import hmac
 import json
 import re
 from collections import defaultdict
@@ -24,7 +25,7 @@ def _pointer_part(value):
     return str(value).replace("~", "~0").replace("/", "~1")[:120]
 
 
-def discover_object_references(content_type, body, salt):
+def discover_object_references(content_type, body, salt, fingerprint_key=None):
     """Extract candidate ID-like fields without retaining their values."""
     if "json" not in str(content_type or "").lower():
         return []
@@ -64,6 +65,12 @@ def discover_object_references(content_type, body, salt):
                             "value_type": "integer" if isinstance(value, int) else "string",
                             "fingerprint": digest,
                         }
+                        if isinstance(fingerprint_key, bytes) and len(fingerprint_key) >= 16:
+                            record["registry_fingerprint"] = hmac.new(
+                                fingerprint_key,
+                                identifier.encode("utf-8"),
+                                hashlib.sha256,
+                            ).hexdigest()
                         found[(child_pointer, digest)] = record
                 if isinstance(value, (dict, list)):
                     pending.append((value, child_pointer))
@@ -72,6 +79,30 @@ def discover_object_references(content_type, body, salt):
                 if isinstance(value, (dict, list)):
                     pending.append((value, pointer + "/*"))
     return list(found.values())[:_MAX_CANDIDATES]
+
+
+def correlate_registered_resource_summaries(summaries, registered_resources):
+    """Attach only project-local registry matches; never claim ownership is verified."""
+    registered = {
+        str(item.get("resource_fingerprint")): item.get("id")
+        for item in registered_resources or []
+        if isinstance(item, dict)
+        and re.fullmatch(r"[0-9a-f]{64}", str(item.get("resource_fingerprint") or ""))
+        and item.get("id") is not None
+    }
+    results = []
+    for summary in summaries or []:
+        if not isinstance(summary, dict):
+            continue
+        matched_id = registered.get(str(summary.get("registry_fingerprint") or ""))
+        item = dict(summary)
+        item["registered_resource_match"] = matched_id is not None
+        item["registered_owned_resource_id"] = matched_id
+        item["ownership_attested"] = matched_id is not None
+        item["ownership_verified"] = False
+        item["manual_ownership_mapping_required"] = matched_id is None
+        results.append(item)
+    return results
 
 
 def summarize_object_reference_observations(observations):
@@ -95,15 +126,28 @@ def summarize_object_reference_observations(observations):
             "json_pointer": pointer,
             "field_name": field_name,
             "value_type": str(candidate.get("value_type") or "")[:20],
+            "registry_fingerprint": str(candidate.get("registry_fingerprint") or ""),
         })
 
     summaries = []
     for (endpoint, fingerprint), records in sorted(grouped.items()):
         roles = sorted({record["role_label"] for record in records})
         pointers = sorted({record["json_pointer"] for record in records})
+        registry_fingerprints = sorted({
+            str(record.get("registry_fingerprint"))
+            for record in records
+            if re.fullmatch(
+                r"[0-9a-f]{64}",
+                str(record.get("registry_fingerprint") or ""),
+            )
+        })
         summaries.append({
             "endpoint": endpoint,
             "resource_fingerprint": fingerprint,
+            "registry_fingerprint": (
+                registry_fingerprints[0]
+                if len(registry_fingerprints) == 1 else None
+            ),
             "roles_observing_reference": roles,
             "json_pointers": pointers[:20],
             "field_names": sorted({record["field_name"] for record in records})[:20],

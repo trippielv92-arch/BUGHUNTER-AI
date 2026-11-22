@@ -126,3 +126,19 @@ def test_owner_profile_cannot_be_deleted_while_resource_mappings_exist(
     from app.services.credential_vault import delete_test_credential_profile
     with pytest.raises(ValueError, match="resource mappings first"):
         delete_test_credential_profile(db, project.id, profile.id)
+
+def test_resource_fingerprint_is_stable_within_project_and_isolated_between_projects(
+    monkeypatch
+):
+    from app.services.owned_resource_registry import fingerprint_resource_reference
+
+    monkeypatch.setenv(
+        "BUGHUNTER_CREDENTIAL_ENCRYPTION_KEY",
+        Fernet.generate_key().decode("ascii"),
+    )
+    first = fingerprint_resource_reference("same-id", 10)
+    again = fingerprint_resource_reference("same-id", 10)
+    other_project = fingerprint_resource_reference("same-id", 11)
+    assert first == again
+    assert first != other_project
+
