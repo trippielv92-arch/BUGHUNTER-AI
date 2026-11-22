@@ -25,16 +25,16 @@ PYTHONPATH=. pytest -q
 
 ## Standard workflow
 
-1. Create a project using the official programme URL.
-2. Analyze the public programme page or paste policy text.
-3. Review the policy and extracted asset candidates yourself.
-4. Add only exact hostnames that the programme explicitly authorizes.
-5. Check exclusions and testing restrictions, then approve the exact included scope.
-6. Select an approved HTTPS target and click **START HUNT**.
+1. Create a project using the official programme URL. In the remote workspace, the URL is automatically retrieved and analyzed after project creation.
+2. For a private or inaccessible programme, paste/import its official policy text and run analysis; provider passwords are never requested.
+3. Review extracted in-scope, excluded and ambiguous candidates, along with testing restrictions and reward/eligibility clauses.
+4. Use **AUTO-PROPOSE CLEAR IN-SCOPE HOSTS** to add only exact hostnames with clear inclusion evidence to proposed scope. Wildcards, CIDRs, IPs, mobile identifiers and path-limited URLs are not broadened into hostname scope.
+5. Review the complete proposed list and approve the exact included scope.
+6. Click **START CLOUD HUNT** to queue a hunt for every approved host, or **START HUNT** in local mode.
 7. Review newly discovered candidate hosts, endpoints, manual assessment tasks and potential findings.
 8. Verify findings manually within the programme rules; export a report when ready.
 
-Scope approval is a human decision. Discovered hosts are never automatically included or approved. Wildcards are not expanded into authorization.
+Scope approval is a human decision. Policy-listed exact hostnames can be automatically proposed, but no asset is authorized until the complete scope is explicitly approved. Discovered DNS/CT names are never automatically proposed or approved. Wildcards are not expanded into authorization. A changed policy snapshot revokes previous scope approval.
 
 ## Persistent background hunts
 
@@ -75,7 +75,8 @@ See [docs/CLOUD_DEPLOYMENT.md](docs/CLOUD_DEPLOYMENT.md) for setup, secrets, TLS
 - Optionally queries Certificate Transparency for names related to approved assets.
 - Saves discovered names as candidates with `included=False` and `approved=False`.
 - Revalidates the exact target before bounded website discovery.
-- Uses rate-limited HTTPS GET requests, same-host boundaries and bounded response handling.
+- Uses bounded HTTPS GET requests, same-host boundaries and bounded response handling.
+- Enforces parsed programme restrictions: explicit automated-scanning bans skip active crawling, broader bans on automated tools also skip passive discovery, and extracted request-rate limits increase inter-request delay.
 - Inventories discovered pages, forms, JavaScript references and documented API operations where available.
 - Creates metadata-driven manual assessment recommendations for discovered endpoints.
 - Correlates existing observations with potential findings without sending extra requests or payloads.
@@ -99,7 +100,11 @@ No findings does not mean a target is secure. A discovery run is not a comprehen
 
 - Native PySide6 desktop interface and local owner login.
 - SQLAlchemy persistence and per-account project data isolation.
-- Programme URL retrieval, manual policy text analysis and candidate extraction.
+- Automatic programme-page analysis on remote project creation, with private-programme policy-text import.
+- Known-provider identification plus generic policy parsing for other programme URLs.
+- Structured extraction of inclusion/exclusion candidates, path-limited URLs, wildcard/CIDR/IP assets, mobile app identifiers, eligibility/reward clauses and testing restrictions.
+- One-click proposal of clear exact-host candidates, stale-policy candidate rejection and policy-change scope-approval revocation.
+- Programme-aware automated-tool prohibitions and conservative request-rate enforcement.
 - Exact included-asset scope approval gate.
 - Passive DNS and Certificate Transparency discovery with unapproved candidate handling.
 - Bounded website crawling and endpoint/API documentation inventory.
@@ -110,7 +115,8 @@ No findings does not mean a target is secure. A discovery run is not a comprehen
 
 ## Still under development
 
-- Policy-aware exclusions, wildcard/CIDR semantics, expiry and rate-limit enforcement.
+- Provider-specific API adapters, JavaScript-rendered policy-page support and authenticated browser-session import.
+- Complete wildcard/CIDR/path-aware authorization semantics, programme expiry handling and stronger interpretation of complex rate-limit clauses.
 - True pause/resume and exact mid-hunt checkpoint recovery.
 - Deeper permission-gated vulnerability verification using controlled test accounts.
 - Stronger finding deduplication, review workflow and evidence lifecycle.

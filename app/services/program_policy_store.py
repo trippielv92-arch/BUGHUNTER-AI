@@ -4,7 +4,7 @@ import json
 
 from sqlalchemy import func, select
 
-from app.models.entities import Project, ProgramPolicy, ProgramAsset
+from app.models.entities import Project, ProgramPolicy, ProgramAsset, ScopeAsset
 from app.services.analyzer import analyze_programme
 
 
@@ -44,6 +44,16 @@ def analyze_and_store_program(db, project_id, manual_policy=""):
         )
     ) or 0
 
+    # A changed policy invalidates every previous scope approval. The old
+    # approvals cannot silently survive a new exclusion or changed rule.
+    if current_version > 0 or project.scope_approved:
+        project.scope_approved = False
+        project.status = "draft"
+        for scope_asset in db.scalars(
+            select(ScopeAsset).where(ScopeAsset.project_id == project_id)
+        ).all():
+            scope_asset.approved = False
+
     provider = result["provider"]
     policy_metadata = result["policy"]
 
@@ -64,6 +74,8 @@ def analyze_and_store_program(db, project_id, manual_policy=""):
                 "policy": policy_metadata,
                 "scope": result["scope"],
                 "policy_topics": result["policy_topics"],
+                "rules": result["rules"],
+                "execution_controls": result["execution_controls"],
                 "warnings": result["warnings"],
             },
             ensure_ascii=False,
@@ -143,6 +155,9 @@ def list_program_policies(db, project_id):
                 "fingerprint_sha256": policy.fingerprint_sha256,
                 "extraction_confidence": policy.extraction_confidence,
                 "review_status": policy.review_status,
+                "rules": json.loads(policy.extraction_json or "{}").get("rules", {}),
+                "execution_controls": json.loads(policy.extraction_json or "{}").get("execution_controls", {}),
+                "warnings": json.loads(policy.extraction_json or "{}").get("warnings", []),
                 "created_at": policy.created_at,
                 "assets": [
                     {

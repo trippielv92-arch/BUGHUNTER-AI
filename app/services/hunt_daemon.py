@@ -8,11 +8,12 @@ from sqlalchemy import text
 
 from app.core.config import DATA_DIR
 from app.database.db import SessionLocal, engine, init_db
-from app.models.entities import AssessmentJob, Project
+from app.models.entities import AssessmentJob, Project, ScanCheck
 from app.services.jobs import transition_job, update_job_progress
 from app.services.passive_recon import run_passive_recon
 from app.services.engine import run_website_analysis
 from app.services.validation import validate_project_findings
+from app.services.program_intelligence import derive_policy_execution_controls
 
 JOB_TYPE = "Automated hunt"
 POLL_SECONDS = 2
@@ -37,12 +38,24 @@ class JobStopSignal:
             return True
         # Use a fresh connection so a long-lived ORM transaction cannot
         # retain a stale SQLite read snapshot after the UI commits a stop.
-        with engine.connect() as connection:
-            status = connection.execute(
-                text("SELECT status FROM assessment_jobs WHERE id=:id"),
+        with self.db.get_bind().connect() as connection:
+            row = connection.execute(
+                text(
+                    "SELECT j.status AS job_status, "
+                    "p.scope_approved AS scope_approved, "
+                    "p.status AS project_status "
+                    "FROM assessment_jobs j "
+                    "JOIN projects p ON p.id=j.project_id "
+                    "WHERE j.id=:id"
+                ),
                 {"id": self.job_id},
-            ).scalar_one_or_none()
-        return status != "running"
+            ).first()
+        return (
+            row is None
+            or row.job_status != "running"
+            or not bool(row.scope_approved)
+            or row.project_status == "deleted"
+        )
 
     def wait(self, seconds):
         import time
@@ -183,11 +196,21 @@ def run_job(job_id, project_id, owner_id):
 
         log.info("Claimed hunt %s for project %s", job_id, project_id)
 
-        results = {"passive_recon": None, "website_analysis": None,
-                   "validation": None}
+        policy_controls = derive_policy_execution_controls(
+            project.policy_text or ""
+        )
+        results = {
+            "policy_controls": policy_controls,
+            "passive_recon": None,
+            "website_analysis": None,
+            "validation": None,
+        }
 
         # Phase 1: DNS and certificate-transparency discovery.
-        if config.get("passive_recon", True):
+        if (
+            config.get("passive_recon", True)
+            and policy_controls["passive_discovery_allowed"]
+        ):
             results["passive_recon"] = run_passive_recon(
                 db, project_id,
                 use_certificate_transparency=bool(
@@ -200,6 +223,18 @@ def run_job(job_id, project_id, owner_id):
                     "Passive discovery: " + str(msg),
                 ),
             )
+        elif config.get("passive_recon", True):
+            results["passive_recon"] = {
+                "skipped": True,
+                "reason": (
+                    "Passive discovery was skipped because the programme policy "
+                    "explicitly prohibits automated tools."
+                ),
+                "policy_evidence": policy_controls[
+                    "passive_discovery_prohibition_evidence"
+                ],
+                "network_requests": 0,
+            }
 
         if job_stop.is_set() or (results["passive_recon"] or {}).get("stopped"):
             current = db.execute(
@@ -221,17 +256,47 @@ def run_job(job_id, project_id, owner_id):
         if not project or project.status == "deleted" or not project.scope_approved:
             raise ValueError("Approved scope changed before website analysis.")
 
-        # Phase 2: bounded, same-host, HTTPS GET-only website discovery.
-        results["website_analysis"] = run_website_analysis(
-            db, project_id, target,
-            max_pages=max_pages,
-            delay_seconds=0.75,
-            stop_event=job_stop,
-            progress_callback=lambda pct, msg: persist_progress(
-                db, job_id, 20 + int(int(pct) * 0.75),
-                "Website discovery: " + str(msg),
-            ),
-        )
+        # Phase 2: enforce explicit programme restrictions before active requests.
+        if not policy_controls["active_automated_testing_allowed"]:
+            reason = (
+                "Active automated crawling was skipped because the supplied "
+                "programme policy explicitly prohibits automated scanning/testing."
+            )
+            results["website_analysis"] = {
+                "skipped": True,
+                "reason": reason,
+                "policy_evidence": policy_controls[
+                    "automated_testing_prohibition_evidence"
+                ],
+                "network_requests": 0,
+                "payloads_executed": 0,
+            }
+            db.add(ScanCheck(
+                project_id=project_id,
+                asset=target,
+                check_name="Programme policy execution guard",
+                outcome="skipped",
+                details=json.dumps(results["website_analysis"], ensure_ascii=False),
+            ))
+            db.commit()
+            persist_progress(
+                db, job_id, 90,
+                "Active discovery skipped to comply with programme policy.",
+            )
+        else:
+            # The strictest parsed programme rate limit overrides our default delay.
+            results["website_analysis"] = run_website_analysis(
+                db, project_id, target,
+                max_pages=max_pages,
+                delay_seconds=policy_controls[
+                    "minimum_request_delay_seconds"
+                ],
+                stop_event=job_stop,
+                progress_callback=lambda pct, msg: persist_progress(
+                    db, job_id, 20 + int(int(pct) * 0.75),
+                    "Website discovery: " + str(msg),
+                ),
+            )
 
         if job_stop.is_set() or (results["website_analysis"] or {}).get("stopped"):
             current = db.execute(

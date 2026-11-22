@@ -234,6 +234,12 @@ class APIClient:
             f"/api/v1/projects/{int(project_id)}/program-assets/{int(asset_id)}/add-to-scope",
         )
 
+    def propose_clear_program_hostnames(self, project_id):
+        return self.request(
+            "POST",
+            f"/api/v1/projects/{int(project_id)}/program-assets/propose-clear-hostnames",
+        )
+
     def review_finding(self, project_id, finding_id, **changes):
         return self.request(
             "PATCH",
