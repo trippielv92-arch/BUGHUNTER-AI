@@ -33,7 +33,7 @@ def encrypt_secret(secret):
     value = str(secret or "")
     if not value or len(value) > 8192:
         raise ValueError("Credential secret must contain 1 to 8192 characters.")
-    if "\\r" in value or "\\n" in value:
+    if "\r" in value or "\n" in value:
         raise ValueError("Credential secrets cannot contain line breaks.")
     return _cipher().encrypt(value.encode("utf-8")).decode("ascii")
 
