@@ -83,7 +83,8 @@ def test_policy_rules_are_extracted_as_evidence_not_authorization():
     text = (
         "Testing rules: Do not perform denial of service or brute force. "
         "Limit requests to 10 requests per second. "
-        "Use test accounts only. Do not publicly disclose findings."
+        "Use test accounts only. Do not publicly disclose findings. "
+        "Eligible vulnerability reports may receive a bounty reward."
     )
     result = analyze_program_policy("https://program.example.org", text)
     rules = result["rules"]
@@ -91,6 +92,8 @@ def test_policy_rules_are_extracted_as_evidence_not_authorization():
     assert "rate_limit_rules" in rules
     assert "authentication_requirements" in rules
     assert "disclosure_requirements" in rules
+    assert "vulnerability_eligibility" in rules
+    assert "reward_and_severity" in rules
     assert result["policy"]["human_review_required"] is True
     assert result["scope"]["approval_performed"] is False
 
