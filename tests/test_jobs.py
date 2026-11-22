@@ -13,6 +13,7 @@ from app.services.projects import (
     add_scope_asset,
     approve_scope,
 )
+from app.services.hunt_daemon import JobStopSignal, STOP
 
 
 @pytest.fixture
@@ -168,3 +169,22 @@ def test_list_jobs_returns_project_jobs(db, approved_project):
     jobs = list_jobs(db, approved_project.id)
 
     assert {job.id for job in jobs} == {first.id, second.id}
+
+
+def test_running_hunt_stops_when_project_scope_is_revoked(
+    db, approved_project
+):
+    job = create_hunt_job(
+        db, approved_project.id, "https://example.com/"
+    )
+    transition_job(db, job.id, "running", progress=10)
+    STOP.clear()
+    signal = JobStopSignal(db, job.id)
+
+    try:
+        assert signal.is_set() is False
+        approved_project.scope_approved = False
+        db.commit()
+        assert signal.is_set() is True
+    finally:
+        STOP.clear()
