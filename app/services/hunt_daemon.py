@@ -3,6 +3,7 @@ import json
 import logging
 import signal
 from threading import Event
+import fcntl
 
 from sqlalchemy import text
 
@@ -72,6 +73,68 @@ class JobStopSignal:
 def shutdown(signum, frame):
     log.info("Shutdown requested; stopping active hunt safely.")
     STOP.set()
+
+
+
+class WorkerProcessLock:
+    """Hold an exclusive process-wide lock for this database worker."""
+
+    def __init__(self, connection=None, lock_file=None):
+        self.connection = connection
+        self.lock_file = lock_file
+
+    def release(self):
+        if self.connection is not None:
+            try:
+                self.connection.execute(
+                    text("SELECT pg_advisory_unlock(:key)"),
+                    {"key": 731946205118},
+                )
+            finally:
+                self.connection.close()
+                self.connection = None
+        if self.lock_file is not None:
+            try:
+                fcntl.flock(self.lock_file.fileno(), fcntl.LOCK_UN)
+            finally:
+                self.lock_file.close()
+                self.lock_file = None
+
+
+def acquire_worker_lock():
+    """Ensure only one worker can recover or execute jobs for this database.
+
+    PostgreSQL uses a session-level advisory lock held on a dedicated
+    connection. SQLite uses an OS file lock in the configured data directory.
+    This deliberately keeps the documented single-worker deployment model
+    until durable per-job leases and heartbeats are implemented.
+    """
+    if engine.dialect.name == "postgresql":
+        connection = engine.connect()
+        try:
+            acquired = connection.execute(
+                text("SELECT pg_try_advisory_lock(:key)"),
+                {"key": 731946205118},
+            ).scalar_one()
+            if not acquired:
+                connection.close()
+                return None
+            return WorkerProcessLock(connection=connection)
+        except Exception:
+            connection.close()
+            raise
+
+    if engine.dialect.name == "sqlite":
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        lock_file = open(DATA_DIR / "hunt-worker.lock", "a+", encoding="utf-8")
+        try:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            lock_file.close()
+            return None
+        return WorkerProcessLock(lock_file=lock_file)
+
+    raise RuntimeError("Hunt workers support SQLite and PostgreSQL only.")
 
 
 def recover_interrupted_hunts():
@@ -387,24 +450,37 @@ def main():
         raise RuntimeError("Hunt workers require SQLite or PostgreSQL.")
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    init_db()
-    signal.signal(signal.SIGTERM, shutdown)
-    signal.signal(signal.SIGINT, shutdown)
-    recover_interrupted_hunts()
+    worker_lock = acquire_worker_lock()
+    if worker_lock is None:
+        log.warning(
+            "Another BugHunter worker already owns this database; "
+            "this worker instance will exit without recovering or claiming jobs."
+        )
+        return
 
-    log.info("Persistent worker started using database %s", engine.url.database)
+    try:
+        init_db()
+        signal.signal(signal.SIGTERM, shutdown)
+        signal.signal(signal.SIGINT, shutdown)
+        # Recovery is safe only while holding the exclusive worker lock:
+        # no other worker can own a live running job at this point.
+        recover_interrupted_hunts()
 
-    while not STOP.is_set():
-        try:
-            item = claim_next_job()
-            if item:
-                run_job(int(item[0]), int(item[1]), int(item[2]))
-                continue
-        except Exception:
-            log.exception("Worker queue loop error")
-        STOP.wait(POLL_SECONDS)
+        log.info("Persistent worker started using database %s", engine.url.database)
 
-    log.info("Persistent worker stopped.")
+        while not STOP.is_set():
+            try:
+                item = claim_next_job()
+                if item:
+                    run_job(int(item[0]), int(item[1]), int(item[2]))
+                    continue
+            except Exception:
+                log.exception("Worker queue loop error")
+            STOP.wait(POLL_SECONDS)
+
+        log.info("Persistent worker stopped.")
+    finally:
+        worker_lock.release()
 
 
 if __name__ == "__main__":
