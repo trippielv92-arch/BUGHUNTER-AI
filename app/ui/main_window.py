@@ -1,7 +1,9 @@
 import json
 import sys
+import subprocess
+from pathlib import Path
 from PySide6.QtWidgets import QApplication,QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,QLabel,QLineEdit,QPushButton,QMessageBox,QDialog,QTabWidget,QFormLayout,QTextEdit,QListWidget,QListWidgetItem,QInputDialog,QFileDialog,QToolButton,QGroupBox,QGridLayout,QFrame,QHeaderView,QTableWidget,QTableWidgetItem,QCheckBox
-from PySide6.QtCore import Qt, QUrl
+from PySide6.QtCore import Qt, QUrl, QTimer
 from app.services.passive_recon_worker import PassiveReconWorker
 from PySide6.QtWidgets import QProgressBar
 from PySide6.QtGui import QDesktopServices
@@ -12,7 +14,7 @@ from app.services.auth import authenticate
 from app.services.api_client import APIClient, APIError
 from app.services.workflows import add_endpoint,initialize_test_plan,update_test_case,recommend_endpoint_tests
 from app.services.evidence import add_evidence,list_evidence,verify_evidence, audit_project_evidence
-from app.services.jobs import create_job,transition_job,list_jobs,recover_interrupted_jobs,ALLOWED_TRANSITIONS
+from app.services.jobs import create_job,create_hunt_job,transition_job,list_jobs,recover_interrupted_jobs,ALLOWED_TRANSITIONS
 from app.services.projects import create_project,add_scope_asset,approve_scope,log_activity,delete_project,restore_project
 from app.services.analyzer import analyze_programme
 from app.services.research import run_safe_assessment
@@ -24,7 +26,24 @@ from app.services.assessment_records import record_assessment_result, assessment
 STYLE = "QWidget{background:#0b1220;color:#e5edf8;font-family:Arial;font-size:13px} QLineEdit,QTextEdit,QListWidget{background:#111d30;border:1px solid #263b58;border-radius:6px;padding:8px;color:#e5edf8} QPushButton{background:#087cf0;color:white;border:0;border-radius:6px;padding:9px 14px;font-weight:600} QTabBar::tab{background:#14233a;padding:10px} QTabBar::tab:selected{background:#087cf0}"
 class Window(QMainWindow):
  def __init__(self):
-  super().__init__(); self.db=SessionLocal(); self.user_id=None; self.project_id=None; self.analysis_worker=None; self.passive_recon_worker=None; self.api_client=None; self.remote_account=None; self.remote_project_id=None; self.remote_project=None; self.setWindowTitle("BugHunter AI — Personal Security Research"); self.resize(1080,740); self.setStyleSheet(STYLE); self.show_login()
+  super().__init__()
+  self.db=SessionLocal()
+  self.user_id=None
+  self.project_id=None
+  self.analysis_worker=None
+  self.passive_recon_worker=None
+  self.api_client=None
+  self.remote_account=None
+  self.remote_project_id=None
+  self.remote_project=None
+  self.setWindowTitle("BugHunter AI — Personal Security Research")
+  self.resize(1080,740)
+  self.setStyleSheet(STYLE)
+  self.job_refresh_timer=QTimer(self)
+  self.job_refresh_timer.setInterval(2500)
+  self.job_refresh_timer.timeout.connect(self.refresh_evidence_jobs)
+  self.job_refresh_timer.start()
+  self.show_login()
  def show_login(self):
   w=QWidget(); l=QVBoxLayout(w); l.setContentsMargins(250,100,250,100)
   t=QLabel("BUGHUNTER AI"); t.setAlignment(Qt.AlignCenter); t.setStyleSheet("font-size:30px;font-weight:800;color:#35a7ff"); l.addWidget(t)
@@ -1020,7 +1039,7 @@ class Window(QMainWindow):
   tl.addWidget(self.website_status)
 
   analysis_buttons=QHBoxLayout()
-  self.start_website_button=QPushButton("START WEBSITE ANALYSIS")
+  self.start_website_button=QPushButton("START HUNT")
   self.start_website_button.clicked.connect(self.start_website_analysis)
   analysis_buttons.addWidget(self.start_website_button)
 
@@ -2685,7 +2704,8 @@ class Window(QMainWindow):
   if not self.evidence_list.count():
    self.evidence_list.addItem("No evidence attached.")
 
-  for job in list_jobs(self.db,self.project_id):
+  jobs=list_jobs(self.db,self.project_id)
+  for job in jobs:
    item=QListWidgetItem(
     f"#{job.id} | {job.job_type} | {job.status.upper()} | "
     f"{job.progress}%"
@@ -2695,6 +2715,20 @@ class Window(QMainWindow):
 
   if not self.job_list.count():
    self.job_list.addItem("No jobs recorded.")
+
+  if hasattr(self,"website_progress"):
+   hunts=[job for job in jobs if job.job_type=="Automated hunt"]
+   latest=hunts[0] if hunts else None
+   active=latest if latest and latest.status in {"queued","running"} else None
+   self.start_website_button.setEnabled(active is None)
+   self.stop_website_button.setEnabled(active is not None)
+   if latest:
+    self.website_progress.setValue(max(0,min(100,latest.progress)))
+    checkpoint=(latest.checkpoint or "").strip()
+    detail=f" — {checkpoint[:180]}" if checkpoint else ""
+    self.website_status.setText(f"Hunt #{latest.id}: {latest.status.upper()} ({latest.progress}%)"+detail)
+   else:
+    self.website_status.setText("No automated hunt has been queued for this project.")
 
  def attach_evidence_ui(self):
   try:
@@ -4004,89 +4038,55 @@ class Window(QMainWindow):
  def start_website_analysis(self):
   try:
    self.require_project()
-
-   if self.analysis_worker is not None and self.analysis_worker.isRunning():
-    QMessageBox.information(self,"Analysis","A website analysis is already running.")
-    return
-
    from app.services.workflows import validate_target
-
    url=self.website_url.text().strip()
    if not url:
     QMessageBox.warning(self,"Target required","Enter an HTTPS URL belonging to an approved asset.")
     return
-
    parsed=validate_target(self.db,self.project_id,url)
-
-   if parsed.scheme.lower()!="https":
-    raise ValueError("Website analysis requires HTTPS.")
-
-   if parsed.port not in (None,443):
-    raise ValueError("Only standard HTTPS port 443 is supported.")
-
-   max_pages,ok=QInputDialog.getInt(
-    self,"Page limit","Maximum pages to inspect:",15,1,25,1
-   )
-   if not ok:
+   if parsed.scheme.lower()!="https" or parsed.port not in (None,443):
+    raise ValueError("Automated hunts require an approved HTTPS target on standard port 443.")
+   active=[job for job in list_jobs(self.db,self.project_id) if job.job_type=="Automated hunt" and job.status in {"queued","running"}]
+   if active:
+    QMessageBox.information(self,"Hunt already active",f"Automated hunt #{active[0].id} is already {active[0].status}.")
+    self.refresh_evidence_jobs()
     return
-
-   answer=QMessageBox.question(
-    self,
-    "Confirm authorized analysis",
-    "This performs sequential, rate-limited HTTPS GET requests on the "
-    "approved host only. Redirects are not followed. Continue?",
-    QMessageBox.Yes|QMessageBox.No
-   )
+   answer=QMessageBox.question(self,"Confirm authorized hunt","Queue a persistent hunt using passive DNS/certificate discovery and bounded, rate-limited HTTPS GET discovery on the exact approved host. New discoveries remain unapproved. No exploit payloads, state-changing requests, or automatic vulnerability confirmation will run. Continue?",QMessageBox.Yes|QMessageBox.No)
    if answer!=QMessageBox.Yes:
     return
-
-   job=create_job(
-    self.db,
-    self.project_id,
-    "Bounded website analysis"
-   )
-
-   worker=WebsiteAnalysisWorker(
-    job.id,
-    self.project_id,
-    url,
-    max_pages=max_pages,
-    delay_seconds=0.75,
-    owner_id=self.user_id,
-    parent=self,
-   )
-
-   worker.progress.connect(self.update_website_progress)
-   worker.result_ready.connect(self.website_analysis_result)
-   worker.error_occurred.connect(self.website_analysis_error)
-   worker.finished.connect(self.website_worker_finished)
-
-   self.analysis_worker=worker
+   job=create_hunt_job(self.db,self.project_id,url,max_pages=25)
+   service=subprocess.run(["systemctl","--user","start","bughunter-hunt-worker.service"],capture_output=True,text=True,check=False)
    self.website_progress.setValue(0)
-   self.website_status.setText(f"Queued job #{job.id}")
-   self.start_website_button.setEnabled(False)
-   self.stop_website_button.setEnabled(True)
-
+   if service.returncode==0:
+    self.website_status.setText(f"Hunt #{job.id} queued. Persistent worker is starting.")
+    QMessageBox.information(self,"Hunt queued",f"Automated hunt #{job.id} has been queued. It will continue independently of this window while the worker service is running.")
+   else:
+    root=Path(__file__).resolve().parents[2]
+    installer=root/"scripts"/"install_hunt_worker.sh"
+    self.website_status.setText(f"Hunt #{job.id} queued; persistent worker setup is required.")
+    QMessageBox.information(self,"Hunt queued — worker setup required",f"Hunt #{job.id} is safely stored in the job queue. To let it run independently, open a terminal in the project folder and run:\n\nbash scripts/install_hunt_worker.sh\n\nExpected installer: {installer}")
    self.refresh_evidence_jobs()
-   worker.start()
-
   except Exception as e:
-   QMessageBox.warning(self,"Website analysis",str(e))
+   self.db.rollback()
+   QMessageBox.warning(self,"Automated hunt",str(e))
 
  def stop_website_analysis(self):
-  worker=self.analysis_worker
-
-  if worker is None or not worker.isRunning():
-   return
-
-  accepted=worker.request_stop()
-  self.stop_website_button.setEnabled(False)
-
-  if accepted:
-   self.website_status.setText("Stop requested; waiting for the current request to finish.")
-  else:
-   self.website_status.setText("Analysis is already finalizing; stop request was too late.")
-
+  try:
+   self.require_project()
+   active=[job for job in list_jobs(self.db,self.project_id) if job.job_type=="Automated hunt" and job.status in {"queued","running"}]
+   if not active:
+    self.refresh_evidence_jobs()
+    return
+   job=active[0]
+   answer=QMessageBox.question(self,"Stop automated hunt",f"Request a safe stop for hunt #{job.id}? The current bounded DNS/HTTP operation may finish before stopping.",QMessageBox.Yes|QMessageBox.No)
+   if answer!=QMessageBox.Yes:
+    return
+   transition_job(self.db,job.id,"stopped",progress=job.progress,checkpoint="Stop requested from the desktop interface. The worker will stop at its next cooperative checkpoint.")
+   self.website_status.setText(f"Stop requested for hunt #{job.id}.")
+   self.refresh_evidence_jobs()
+  except Exception as e:
+   self.db.rollback()
+   QMessageBox.warning(self,"Stop hunt",str(e))
  def update_website_progress(self,percent,message):
   self.website_progress.setValue(percent)
   self.website_status.setText(message)
