@@ -207,6 +207,10 @@ class Window(QMainWindow):
    "Select a project to view its server-side details."
   )
   details_layout.addWidget(self.remote_project_details)
+  self.remote_start_hunt_button = QPushButton("START CLOUD HUNT")
+  self.remote_start_hunt_button.setEnabled(False)
+  self.remote_start_hunt_button.clicked.connect(self.start_remote_hunt)
+  details_layout.addWidget(self.remote_start_hunt_button)
   layout.addWidget(details_box)
 
   # REMOTE_PROGRAM_POLICY_REVIEW
@@ -299,8 +303,9 @@ class Window(QMainWindow):
   layout.addWidget(policy_box)
 
   notice = QLabel(
-   "Remote project management is enabled. Research screens, assessment workers, "
-   "evidence storage and report generation have not yet been migrated to the central server."
+   "Cloud hunts run on the server after you select an explicitly approved asset. "
+   "The current worker performs passive discovery and bounded HTTPS GET inventory; "
+   "comprehensive vulnerability verification and remote evidence/report screens are still under development."
   )
   notice.setWordWrap(True)
   notice.setStyleSheet("color:#f0c674;padding:8px")
@@ -309,6 +314,67 @@ class Window(QMainWindow):
   self.setCentralWidget(root)
   self.statusBar().showMessage("Connected to central BugHunter AI API.")
   self.refresh_remote_projects()
+
+ def start_remote_hunt(self):
+  project = self.remote_project
+  project_id = self.remote_project_id
+
+  if not self.api_client or not project or not project_id:
+   QMessageBox.warning(self, "Cloud hunt", "Select a remote project first.")
+   return
+
+  if not project.get("scope_approved"):
+   QMessageBox.warning(
+    self, "Cloud hunt",
+    "Approve the exact programme scope before starting a hunt."
+   )
+   return
+
+  try:
+   assets = self.api_client.list_project_resource(project_id, "assets")
+   approved = [
+    asset for asset in assets
+    if asset.get("included") and asset.get("approved")
+   ]
+   if not approved:
+    QMessageBox.warning(
+     self, "Cloud hunt",
+     "This project has no explicitly approved in-scope assets."
+    )
+    return
+
+   hosts = [asset.get("host", "") for asset in approved if asset.get("host")]
+   selected, accepted = QInputDialog.getItem(
+    self,
+    "Start cloud hunt",
+    "Choose an explicitly approved asset to assess:",
+    hosts,
+    0,
+    False,
+   )
+   if not accepted or not selected:
+    return
+
+   job = self.api_client.start_hunt(
+    project_id,
+    f"https://{selected}/",
+    max_pages=25,
+   )
+   self.statusBar().showMessage(
+    f"Cloud hunt #{job.get('id')} queued for {selected}."
+   )
+   QMessageBox.information(
+    self,
+    "Cloud hunt queued",
+    f"Hunt job #{job.get('id')} was queued on the cloud server. "
+    "It continues independently of this desktop.\n\n"
+    "Current automated coverage is passive discovery and bounded HTTPS "
+    "GET inventory, not comprehensive vulnerability verification.",
+   )
+  except APIError as exc:
+   QMessageBox.warning(self, "Cloud hunt", str(exc))
+  except Exception as exc:
+   QMessageBox.warning(self, "Cloud hunt", f"Could not queue hunt: {exc}")
 
  def analyze_remote_program(self):
   project = self.remote_project
@@ -650,6 +716,10 @@ class Window(QMainWindow):
    project = self.api_client.get_project(int(project_id))
    self.remote_project_id = int(project_id)
    self.remote_project = project
+   self.remote_start_hunt_button.setEnabled(
+    bool(project.get("scope_approved"))
+    and str(project.get("status", "")).lower() != "deleted"
+   )
    self.remote_project_details.setPlainText(
     f"Project ID: {project.get('id')}\n"
     f"Name: {project.get('name')}\n"
@@ -658,8 +728,8 @@ class Window(QMainWindow):
     f"Description: {project.get('description') or 'None'}\n"
     f"Scope approved: {'YES' if project.get('scope_approved') else 'NO'}\n"
     f"Created: {project.get('created_at')}\n\n"
-    "This is a remote project record. Research functionality is not yet enabled "
-    "in this remote workspace."
+    "Cloud hunts are queued on the central server and continue independently "
+    "of this desktop session."
    )
    self.statusBar().showMessage(
     f"Selected remote project #{project_id}: {project.get('name')}"
@@ -679,6 +749,7 @@ class Window(QMainWindow):
 
    self.remote_project_id = int(project_id)
    self.remote_project = project
+   self.remote_start_hunt_button.setEnabled(False)
    self.remote_project_details.setPlainText(
     f"Archived project #{project.get('id')}\n"
     f"Name: {project.get('name')}\n"
