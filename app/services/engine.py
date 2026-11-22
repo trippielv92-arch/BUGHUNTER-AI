@@ -2349,9 +2349,10 @@ def run_website_analysis(
 
     # Reserve a portion of the shared request budget for fixed exposure and
     # API-documentation checks so a deep page crawl cannot starve them.
-    probe_reserve = min(
-        len(EXPOSURE_PROBE_PATHS),
-        max(0, max_pages - 2),
+    probe_reserve = (
+        len(EXPOSURE_PROBE_PATHS)
+        if max_pages >= len(EXPOSURE_PROBE_PATHS) + 2
+        else 0
     )
     crawl_request_limit = max_pages - probe_reserve
 
