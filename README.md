@@ -77,6 +77,9 @@ See [docs/CLOUD_DEPLOYMENT.md](docs/CLOUD_DEPLOYMENT.md) for setup, secrets, TLS
 - Revalidates the exact target before bounded website discovery.
 - Uses up to 100 bounded HTTPS GET requests per approved host, with same-host boundaries, robots.txt checks and bounded response handling.
 - Checks a fixed set of common exposed configuration, repository, diagnostic and API-documentation paths; it does not brute-force directories and does not retain secret values.
+- Performs up to 12 additional endpoint-specific, unauthenticated GET checks against discovered same-host API routes, within the same total request budget.
+- Omits discovered query strings, cookies and credentials from those API checks; skips non-GET methods, templated object routes, risky action-like paths and robots-disallowed endpoints.
+- Records 401/403 responses as access-control observations and flags only non-empty personal-data-like JSON field names from successful anonymous responses. It never stores response values and does not assume that a public endpoint is a vulnerability.
 - Enforces parsed programme restrictions: explicit automated-scanning bans skip active crawling, broader bans on automated tools also skip passive discovery, and extracted request-rate limits increase inter-request delay.
 - Inventories discovered pages, forms, JavaScript references and documented API operations where available.
 - Creates metadata-driven manual assessment recommendations for discovered endpoints.
@@ -91,7 +94,8 @@ The current hunt page/request limit is bounded (maximum 100). Website discovery 
 - Exclusions and programme restrictions take precedence; review the official policy before approving scope.
 - New DNS/CT names are candidates only. They are not authorization.
 - The automated hunt does not run SQL injection, XSS, IDOR, SSRF, authentication bypass, payment, race-condition or other exploit payloads.
-- Sensitive authentication, authorization, IDOR, SSRF, injection and business-logic checks remain manual and require approved test accounts, synthetic data or a controlled environment.
+- The anonymous API check is not a credentialed authentication test. It does not compare researcher-owned user roles or prove that an endpoint should require login.
+- Controlled authenticated authorization, IDOR, SSRF, injection and business-logic checks remain manual and require approved test accounts, synthetic data or a controlled environment.
 - Potential findings are not automatically confirmed. Correlation is supporting evidence only.
 - Do not put credentials, session tokens or other secrets in the target URL. Hunt creation rejects query strings for this reason.
 

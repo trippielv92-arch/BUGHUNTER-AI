@@ -177,6 +177,121 @@ def _exposure_probe_indicator(probe_path, status, body):
     return None
 
 
+ENDPOINT_ASSESSMENT_LIMIT = 12
+SENSITIVE_RESPONSE_FIELD_MARKERS = {
+    "email", "phone", "phonenumber", "mobile", "address",
+    "dateofbirth", "birthdate", "nationalid", "ssn",
+    "passport", "accountnumber", "bankaccount", "balance",
+    "paymentdetails", "customerid", "userid", "personaldata",
+}
+
+
+def _anonymous_api_sensitive_fields(content_type, body):
+    """Return non-empty personal-data field names, never response values."""
+    if "json" not in str(content_type or "").lower():
+        return []
+
+    try:
+        payload = json.loads(
+            body.decode("utf-8", errors="replace")
+            if isinstance(body, bytes) else str(body or "")
+        )
+    except (ValueError, TypeError):
+        return []
+
+    found = set()
+    pending = [payload]
+    visited = 0
+
+    while pending and visited < 5000:
+        current = pending.pop()
+        visited += 1
+
+        if isinstance(current, dict):
+            for key, value in current.items():
+                normalized = re.sub(
+                    r"[^a-z0-9]", "", str(key).lower()
+                )
+                if (
+                    normalized in SENSITIVE_RESPONSE_FIELD_MARKERS
+                    and value not in (None, "", False, [], {})
+                ):
+                    found.add(str(key)[:80])
+
+                if isinstance(value, (dict, list)):
+                    pending.append(value)
+
+        elif isinstance(current, list):
+            pending.extend(
+                item for item in current
+                if isinstance(item, (dict, list))
+            )
+
+    return sorted(found)[:30]
+
+
+def _safe_anonymous_get_endpoint(endpoint, origin):
+    """Select only explicit, same-origin, parameter-free API GET routes."""
+    if str(endpoint.method or "").upper() != "GET":
+        return None
+
+    endpoint_type = str(endpoint.endpoint_type or "").lower()
+    if not any(marker in endpoint_type for marker in (
+        "api", "graphql", "openapi",
+    )):
+        return None
+
+    try:
+        parsed = urlsplit(str(endpoint.url or ""))
+        base = urlsplit(origin)
+
+        if (
+            parsed.scheme.lower() != "https"
+            or parsed.hostname != base.hostname
+            or parsed.port not in (None, 443)
+            or parsed.username is not None
+            or parsed.password is not None
+        ):
+            return None
+
+        path = parsed.path or "/"
+        if "{" in path or "}" in path or len(path) > 1500:
+            return None
+
+        path_segments = [
+            segment for segment in path.split("/") if segment
+        ]
+        # Never probe a concrete object identifier discovered in a URL;
+        # that could cross into another researcher's or customer's record.
+        object_id_pattern = re.compile(
+            r"(?:\d{1,20}|[0-9a-f]{8}-[0-9a-f]{4}-"
+            r"[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|"
+            r"[A-Za-z0-9_-]{28,})",
+            re.IGNORECASE,
+        )
+        if any(object_id_pattern.fullmatch(segment) for segment in path_segments):
+            return None
+
+        blocked = SKIP_PATH_WORDS | {
+            "search", "export", "download", "report", "generate",
+            "callback", "redirect", "webhook", "create", "update",
+            "send", "invite", "reset", "verify", "confirm",
+        }
+        segments = {
+            segment.lower() for segment in path.split("/") if segment
+        }
+        if segments.intersection(blocked):
+            return None
+
+        # Deliberately discard all query strings: discovered parameter values
+        # may contain identifiers, tokens, or other user-supplied data.
+        return urlunsplit(("https", parsed.netloc, path, "", ""))
+
+    except (ValueError, TypeError):
+        return None
+
+
+
 SECURITY_HEADERS = {
     "strict-transport-security": "HTTP Strict Transport Security",
     "content-security-policy": "Content Security Policy",
@@ -2354,7 +2469,16 @@ def run_website_analysis(
         if max_pages >= len(EXPOSURE_PROBE_PATHS) + 2
         else 0
     )
-    crawl_request_limit = max_pages - probe_reserve
+    endpoint_reserve = (
+        ENDPOINT_ASSESSMENT_LIMIT
+        if max_pages >= (
+            len(EXPOSURE_PROBE_PATHS) + ENDPOINT_ASSESSMENT_LIMIT + 2
+        )
+        else 0
+    )
+    crawl_request_limit = (
+        max_pages - probe_reserve - endpoint_reserve
+    )
 
     initial_finding_count = db.scalar(
         select(func.count()).select_from(Finding).where(
@@ -2376,6 +2500,10 @@ def run_website_analysis(
         "tls_verified": False,
         "exposure_probes_attempted": 0,
         "exposure_indicators": 0,
+        "api_endpoints_assessed": 0,
+        "anonymous_api_responses": 0,
+        "anonymous_api_protected": 0,
+        "anonymous_sensitive_field_indicators": 0,
         "client_routes_discovered": 0,
         "javascript_assets_checked": 0,
         "source_maps_discovered": 0,
@@ -3206,12 +3334,184 @@ def run_website_analysis(
                 )
                 db.commit()
 
+    # Assess a small set of explicitly discovered API GET operations with
+    # no Authorization header and no cookies. Never replay discovered query
+    # strings, submit forms, or invoke non-GET OpenAPI operations.
+    if not stats["stopped"] and endpoint_reserve:
+        discovered_endpoints = db.scalars(
+            select(Endpoint).where(
+                Endpoint.project_id == project_id,
+            ).order_by(Endpoint.id.asc())
+        ).all()
+        candidates = []
+        seen_endpoint_urls = set()
+
+        for endpoint in discovered_endpoints:
+            candidate_url = _safe_anonymous_get_endpoint(endpoint, origin)
+            if not candidate_url or candidate_url in seen_endpoint_urls:
+                continue
+            seen_endpoint_urls.add(candidate_url)
+            candidates.append(candidate_url)
+            if len(candidates) >= ENDPOINT_ASSESSMENT_LIMIT:
+                break
+
+        for endpoint_url in candidates:
+            if stats["total_requests"] >= max_pages:
+                break
+            if stop_event is not None and stop_event.is_set():
+                stats["stopped"] = True
+                break
+
+            try:
+                validate_target(db, project_id, endpoint_url)
+                if robots_available and not robots.can_fetch(
+                    USER_AGENT, endpoint_url
+                ):
+                    _save_check(
+                        db, project_id, endpoint_url,
+                        "Anonymous API access-boundary review",
+                        "skipped",
+                        "robots.txt disallowed this endpoint; no request sent.",
+                    )
+                    continue
+
+                if stop_event is not None:
+                    if stop_event.wait(delay_seconds):
+                        stats["stopped"] = True
+                        break
+                elif stats["total_requests"] > 0:
+                    time.sleep(delay_seconds)
+
+                if stop_event is not None and stop_event.is_set():
+                    stats["stopped"] = True
+                    break
+                if stats["total_requests"] >= max_pages:
+                    break
+
+                # httpx persists Set-Cookie values between requests by default.
+                # Clear the jar both before and after each anonymous request.
+                client.cookies.clear()
+                stats["total_requests"] += 1
+                stats["api_endpoints_assessed"] += 1
+                response = _read_limited_response(client, endpoint_url)
+                client.cookies.clear()
+
+                status = response["status"]
+                content_type = response["headers"].get(
+                    "content-type", ""
+                )
+                stats["anonymous_api_responses"] += int(
+                    200 <= status < 300
+                )
+
+                if status in {401, 403}:
+                    stats["anonymous_api_protected"] += 1
+                    details = (
+                        f"HTTP {status}; endpoint rejected an unauthenticated "
+                        "request. No credentials or cookies were supplied."
+                    )
+                    outcome = "protected"
+
+                elif 200 <= status < 300:
+                    sensitive_fields = _anonymous_api_sensitive_fields(
+                        content_type, response["body"]
+                    )
+                    if sensitive_fields:
+                        stats["anonymous_sensitive_field_indicators"] += len(
+                            sensitive_fields
+                        )
+                        _save_finding(
+                            db=db,
+                            project_id=project_id,
+                            title="Potential unauthenticated API personal-data exposure",
+                            category="API Security",
+                            severity="medium",
+                            confidence="low",
+                            asset=endpoint_url,
+                            description=(
+                                "A discovered API GET endpoint returned a "
+                                "successful response without credentials and "
+                                "contained non-empty fields commonly associated "
+                                "with personal or account data. This does not "
+                                "prove the data is private or that access is "
+                                "unauthorized; verify the endpoint's intended "
+                                "public behavior with the programme owner."
+                            ),
+                            evidence=(
+                                f"HTTP {status}; non-empty field names only: "
+                                + ", ".join(sensitive_fields)
+                                + ". No cookies, credentials, query values, "
+                                "or response values were retained."
+                            ),
+                            remediation=(
+                                "Confirm whether the endpoint is intended to "
+                                "be public. If not, enforce authentication, "
+                                "object-level authorization and field-level "
+                                "response filtering."
+                            ),
+                        )
+                        details = (
+                            f"HTTP {status}; personal-data field-name "
+                            f"indicators: {', '.join(sensitive_fields)}. "
+                            "Values were not retained; public intent remains "
+                            "unverified."
+                        )
+                    else:
+                        details = (
+                            f"HTTP {status}; no recognized non-empty "
+                            "personal-data field names were detected."
+                        )
+                    outcome = "reviewed"
+
+                elif 300 <= status < 400:
+                    details = (
+                        f"HTTP {status}; redirect was not followed to avoid "
+                        "changing the approved request boundary."
+                    )
+                    outcome = "redirect_not_followed"
+
+                else:
+                    details = (
+                        f"HTTP {status}; no authenticated request was made."
+                    )
+                    outcome = "reviewed"
+
+                _save_check(
+                    db, project_id, endpoint_url,
+                    "Anonymous API access-boundary review",
+                    outcome,
+                    details[:3000],
+                )
+                db.commit()
+
+            except Exception as exc:
+                client.cookies.clear()
+                stats["requests_failed"] += 1
+                _save_check(
+                    db, project_id, endpoint_url,
+                    "Anonymous API access-boundary review",
+                    "failed",
+                    f"{type(exc).__name__}: {str(exc)[:700]}",
+                )
+                db.commit()
+
+    endpoint_checks_remaining = bool(
+        endpoint_reserve
+        and stats["api_endpoints_assessed"] < min(
+            ENDPOINT_ASSESSMENT_LIMIT,
+            len(candidates) if "candidates" in locals() else 0,
+        )
+    )
     probes_remaining = (
         stats["exposure_probes_attempted"] < len(EXPOSURE_PROBE_PATHS)
     )
     stats["request_limit_reached"] = bool(
         stats["total_requests"] >= max_pages
-        and (bool(queue) or probes_remaining)
+        and (
+            bool(queue)
+            or probes_remaining
+            or endpoint_checks_remaining
+        )
         and not stats["stopped"]
     )
 
