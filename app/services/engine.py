@@ -16,7 +16,8 @@ This module performs non-destructive GET requests only.
 """
 
 import json
-from urllib.parse import parse_qsl
+import hashlib
+from urllib.parse import parse_qsl, quote
 import re
 import time
 
@@ -177,7 +178,8 @@ def _exposure_probe_indicator(probe_path, status, body):
     return None
 
 
-CREDENTIALLED_ENDPOINT_ASSESSMENT_LIMIT = 12
+CREDENTIALLED_ENDPOINT_ASSESSMENT_LIMIT = 6
+OWNED_RESOURCE_VERIFICATION_LIMIT = 6
 ENDPOINT_ASSESSMENT_LIMIT = 12
 SENSITIVE_RESPONSE_FIELD_MARKERS = {
     "email", "phone", "phonenumber", "mobile", "address",
@@ -613,6 +615,261 @@ def _save_finding(
     ))
 
     return True
+
+
+def _verify_registered_owned_resources(
+    db, project_id, origin, auth_profiles, robots, robots_available,
+    client, stop_event, delay_seconds, max_pages, stats,
+):
+    """Owner-first GET comparisons for explicit, encrypted researcher test resources."""
+    from app.models.entities import ResearcherOwnedResource
+    from app.services.owned_resource_registry import decrypt_registered_reference
+    from app.services.object_authorization_verifier import (
+        build_registered_resource_url,
+        compare_owned_resource_access,
+        select_distinct_requester_profiles,
+    )
+
+    resources = db.scalars(
+        select(ResearcherOwnedResource)
+        .where(
+            ResearcherOwnedResource.project_id == project_id,
+            ResearcherOwnedResource.ownership_attested.is_(True),
+        )
+        .order_by(ResearcherOwnedResource.id.asc())
+    ).all()
+    if not resources:
+        return False
+
+    profiles_by_id = {
+        int(profile["id"]): profile
+        for profile in auth_profiles
+        if isinstance(profile, dict) and profile.get("id") is not None
+    }
+    request_count = 0
+    processed = 0
+
+    for resource in resources:
+        if request_count >= OWNED_RESOURCE_VERIFICATION_LIMIT:
+            break
+        if stop_event is not None and stop_event.is_set():
+            stats["stopped"] = True
+            break
+
+        owner = profiles_by_id.get(resource.owner_profile_id)
+        requesters = select_distinct_requester_profiles(
+            owner, auth_profiles, limit=2
+        )
+        if owner is None or not requesters:
+            stats["owned_resource_checks_skipped"] += 1
+            _save_check(
+                db, project_id, resource.endpoint_template,
+                "Researcher-owned resource authorization verification",
+                "skipped",
+                json.dumps({
+                    "resource_id": resource.id,
+                    "resource_fingerprint": resource.resource_fingerprint,
+                    "reason": (
+                        "Owner profile unavailable or no second distinct "
+                        "researcher-controlled credential is configured."
+                    ),
+                    "network_requests": 0,
+                }),
+            )
+            db.commit()
+            processed += 1
+            continue
+
+        try:
+            reference = decrypt_registered_reference(resource)
+            target_url = build_registered_resource_url(
+                resource.endpoint_template, reference, resource.host
+            )
+            validate_target(db, project_id, target_url)
+            if urlsplit(target_url).hostname.lower() != urlsplit(origin).hostname.lower():
+                raise ValueError("Resource host differs from active hunt host.")
+            if robots_available and not robots.can_fetch(USER_AGENT, target_url):
+                stats["owned_resource_checks_skipped"] += 1
+                _save_check(
+                    db, project_id, resource.endpoint_template,
+                    "Researcher-owned resource authorization verification",
+                    "skipped",
+                    "robots.txt disallowed the registered resource; no request sent.",
+                )
+                db.commit()
+                processed += 1
+                continue
+        except Exception as exc:
+            stats["owned_resource_checks_skipped"] += 1
+            _save_check(
+                db, project_id, resource.endpoint_template,
+                "Researcher-owned resource authorization verification",
+                "skipped",
+                f"Registered resource validation failed ({type(exc).__name__}); no request sent.",
+            )
+            db.commit()
+            processed += 1
+            continue
+
+        def send_owned_get(profile):
+            nonlocal request_count
+            if (
+                request_count >= OWNED_RESOURCE_VERIFICATION_LIMIT
+                or stats["total_requests"] >= max_pages
+                or (stop_event is not None and stop_event.is_set())
+            ):
+                return None
+            auth_type = str(profile.get("auth_type", "")).lower()
+            secret = str(profile.get("secret", ""))
+            if auth_type not in {"bearer", "cookie"} or not secret or "\r" in secret or "\n" in secret:
+                return None
+            if stop_event is not None:
+                if stop_event.wait(delay_seconds):
+                    stats["stopped"] = True
+                    return None
+            elif stats["total_requests"] > 0:
+                time.sleep(delay_seconds)
+            if stop_event is not None and stop_event.is_set():
+                stats["stopped"] = True
+                return None
+
+            headers = (
+                {"Authorization": f"Bearer {secret}"}
+                if auth_type == "bearer"
+                else {"Cookie": secret}
+            )
+            client.cookies.clear()
+            stats["total_requests"] += 1
+            stats["credentialed_api_requests"] += 1
+            request_count += 1
+            try:
+                return _read_limited_response(
+                    client, target_url, request_headers=headers
+                )
+            finally:
+                client.cookies.clear()
+
+        try:
+            owner_response = send_owned_get(owner)
+        except Exception as exc:
+            _save_check(
+                db, project_id, resource.endpoint_template,
+                "Researcher-owned resource owner-access verification",
+                "failed",
+                f"Owner request failed ({type(exc).__name__}); response and credentials were not recorded.",
+            )
+            db.commit()
+            processed += 1
+            continue
+
+        if owner_response is None:
+            processed += 1
+            continue
+
+        stats["owned_resource_checks_attempted"] += 1
+        owner_status = owner_response["status"]
+        if not 200 <= owner_status < 300:
+            _save_check(
+                db, project_id, resource.endpoint_template,
+                "Researcher-owned resource owner-access verification",
+                "owner_access_not_verified",
+                json.dumps({
+                    "resource_id": resource.id,
+                    "resource_fingerprint": resource.resource_fingerprint,
+                    "owner_profile_id": owner["id"],
+                    "owner_status": owner_status,
+                    "requester_tests_sent": 0,
+                    "vulnerability_confirmed": False,
+                }),
+            )
+            db.commit()
+            processed += 1
+            continue
+
+        stats["owned_resource_owner_checks_passed"] += 1
+        owner_body = owner_response["body"]
+        owner_truncated = owner_response.get("truncated", False)
+
+        for requester in requesters:
+            if request_count >= OWNED_RESOURCE_VERIFICATION_LIMIT or stats["stopped"]:
+                break
+            try:
+                requester_response = send_owned_get(requester)
+            except Exception as exc:
+                _save_check(
+                    db, project_id, resource.endpoint_template,
+                    "Researcher-owned resource cross-account comparison",
+                    "failed",
+                    f"Requester request failed ({type(exc).__name__}); response and credentials were not recorded.",
+                )
+                db.commit()
+                continue
+            if requester_response is None:
+                break
+
+            comparison = compare_owned_resource_access(
+                owner_status,
+                requester_response["status"],
+                owner_body,
+                requester_response["body"],
+                owner_truncated=owner_truncated,
+                requester_truncated=requester_response.get("truncated", False),
+            )
+            comparison.update({
+                "resource_id": resource.id,
+                "resource_fingerprint": resource.resource_fingerprint,
+                "owner_profile_id": owner["id"],
+                "requester_profile_id": requester["id"],
+                "owner_role": str(owner.get("role_label", "owner"))[:80],
+                "requester_role": str(requester.get("role_label", "test account"))[:80],
+                "owner_access_attested": True,
+            })
+            outcome = comparison["outcome"]
+            if outcome == "potential_cross_account_access":
+                stats["cross_account_access_leads"] += 1
+                confidence = (
+                    "medium" if comparison["same_response_representation"] else "low"
+                )
+                _save_finding(
+                    db=db,
+                    project_id=project_id,
+                    title="Potential cross-account access to researcher-owned API resource",
+                    category="API Authorization",
+                    severity="medium",
+                    confidence=confidence,
+                    asset=resource.endpoint_template,
+                    description=(
+                        "A distinct researcher-controlled test-account credential "
+                        "received a successful response for a resource registered "
+                        "to the owner test account. The response was not retained. "
+                        "This is a potential authorization lead; intended sharing "
+                        "rules require manual review before confirmation."
+                    ),
+                    evidence=(
+                        json.dumps(comparison, ensure_ascii=False)[:6000]
+                        + " Raw resource identifiers and response values were not stored."
+                    ),
+                    remediation=(
+                        "Review intended sharing rules and verify object-level "
+                        "authorization only with researcher-controlled accounts "
+                        "and synthetic records."
+                    ),
+                )
+            elif outcome == "cross_account_access_denied":
+                stats["cross_account_access_denied"] += 1
+
+            _save_check(
+                db, project_id, resource.endpoint_template,
+                "Researcher-owned resource cross-account comparison",
+                outcome,
+                json.dumps(comparison, ensure_ascii=False)[:7000],
+            )
+            db.commit()
+
+        processed += 1
+
+    return processed < len(resources) or request_count >= OWNED_RESOURCE_VERIFICATION_LIMIT
+
 
 def _analyze_headers(db, project_id, url, headers):
     """Review security headers and passive technology disclosure."""
@@ -2529,6 +2786,11 @@ def run_website_analysis(
         "object_reference_candidates": 0,
         "object_references_seen_across_roles": 0,
         "object_reference_summaries": 0,
+        "owned_resource_checks_attempted": 0,
+        "owned_resource_owner_checks_passed": 0,
+        "cross_account_access_leads": 0,
+        "cross_account_access_denied": 0,
+        "owned_resource_checks_skipped": 0,
         "client_routes_discovered": 0,
         "javascript_assets_checked": 0,
         "source_maps_discovered": 0,
@@ -3748,6 +4010,13 @@ def run_website_analysis(
             credential_request_count < maximum_credential_requests
         )
 
+    owned_resource_checks_remaining = False
+    if auth_profiles and credential_reserve and not stats["stopped"]:
+        owned_resource_checks_remaining = _verify_registered_owned_resources(
+            db, project_id, origin, auth_profiles, robots, robots_available,
+            client, stop_event, delay_seconds, max_pages, stats,
+        )
+
     if object_reference_observations:
         reference_summaries = summarize_object_reference_observations(
             object_reference_observations
@@ -3806,6 +4075,7 @@ def run_website_analysis(
             or probes_remaining
             or endpoint_checks_remaining
             or credential_checks_remaining
+            or owned_resource_checks_remaining
         )
         and not stats["stopped"]
     )
