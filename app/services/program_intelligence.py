@@ -366,11 +366,15 @@ def derive_policy_execution_controls(policy_text):
     ]
 
     automated_prohibition = re.compile(
-        r"(?:\b(?:no|not|never|prohibit(?:ed)?|forbidden|disallow(?:ed)?)\b"
-        r".{0,100}\b(?:automated|automatic|scanner|scanning|tools?)\b)"
+        r"(?:\b(?:no|without)\s+(?:the\s+use\s+of\s+)?(?:any\s+)?"
+        r"(?:automated|automatic)\s+(?:scanners?|scanning|testing|tools?)\b)"
+        r"|(?:\b(?:do not|must not|shall not|may not|never)\s+"
+        r"(?:use|run|perform|conduct|operate)\b.{0,100}\b"
+        r"(?:automated|automatic|scanner|scanning|tools?)\b)"
         r"|(?:\b(?:automated|automatic)\s+(?:scanners?|scanning|testing|tools?)\b"
         r".{0,100}\b(?:prohibited|forbidden|not allowed|not permitted|disallowed)\b)"
-        r"|(?:\bdo not use\b.{0,100}\b(?:automated|automatic|scanner|scanning|tools?)\b)",
+        r"|(?:\bprohibit(?:s|ed)?\b.{0,100}\b"
+        r"(?:automated|automatic|scanner|scanning|tools?)\b)",
         re.I,
     )
     prohibited_sentences = [
