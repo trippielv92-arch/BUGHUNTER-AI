@@ -229,6 +229,7 @@ def _extract_assets(policy_text, programme_url):
     units = _split_units(policy_text)
     records = {}
     provider_host = (urlparse(programme_url).hostname or "").lower().rstrip(".")
+    known_provider_host = identify_provider(programme_url)["id"] != "unknown"
     section = ""
 
     for unit in units:
@@ -247,7 +248,9 @@ def _extract_assets(policy_text, programme_url):
             try:
                 parsed = urlparse(raw_url)
                 host = (parsed.hostname or "").lower().rstrip(".")
-                if not host or host == provider_host or host.endswith("." + provider_host):
+                if not host or host == provider_host or (
+                    known_provider_host and host.endswith("." + provider_host)
+                ):
                     continue
                 exact_https_origin = (
                     parsed.scheme.lower() == "https"
@@ -279,7 +282,9 @@ def _extract_assets(policy_text, programme_url):
                 continue
             wildcard = bool(match.group(1))
             hostname = match.group(2).lower().rstrip(".")
-            if hostname == provider_host or hostname.endswith("." + provider_host):
+            if hostname == provider_host or (
+                known_provider_host and hostname.endswith("." + provider_host)
+            ):
                 continue
             asset = ("*." if wildcard else "") + hostname
             _record_asset(
