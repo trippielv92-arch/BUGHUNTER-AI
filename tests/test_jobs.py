@@ -188,3 +188,21 @@ def test_running_hunt_stops_when_project_scope_is_revoked(
         assert signal.is_set() is True
     finally:
         STOP.clear()
+
+
+def test_hunt_job_accepts_expanded_but_bounded_page_limit(db, approved_project):
+    job = create_hunt_job(
+        db,
+        approved_project.id,
+        "https://example.com/",
+        max_pages=100,
+    )
+    assert '"max_pages": 100' in job.input_json
+
+    with pytest.raises(ValueError, match="between 1 and 100"):
+        create_hunt_job(
+            db,
+            approved_project.id,
+            "https://example.com/",
+            max_pages=101,
+        )
