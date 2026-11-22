@@ -2405,6 +2405,7 @@ def run_website_analysis(
     delay_seconds=0.75,
     stop_event=None,
     progress_callback=None,
+    auth_profiles=None,
 ):
     """
     Run a bounded website assessment against an approved HTTPS target.
@@ -3352,6 +3353,7 @@ def run_website_analysis(
     # no Authorization header and no cookies. Never replay discovered query
     # strings, submit forms, or invoke non-GET OpenAPI operations.
     api_endpoint_candidates = []
+    anonymous_endpoint_observations = {}
     if not stats["stopped"] and endpoint_reserve:
         discovered_endpoints = db.scalars(
             select(Endpoint).where(
@@ -3421,6 +3423,10 @@ def run_website_analysis(
                 )
 
                 if status in {401, 403}:
+                    anonymous_endpoint_observations[endpoint_url] = {
+                        "status": status,
+                        "sensitive_fields": [],
+                    }
                     stats["anonymous_api_protected"] += 1
                     details = (
                         f"HTTP {status}; endpoint rejected an unauthenticated "
@@ -3432,6 +3438,10 @@ def run_website_analysis(
                     sensitive_fields = _anonymous_api_sensitive_fields(
                         content_type, response["body"]
                     )
+                    anonymous_endpoint_observations[endpoint_url] = {
+                        "status": status,
+                        "sensitive_fields": list(sensitive_fields),
+                    }
                     if sensitive_fields:
                         stats["anonymous_sensitive_field_indicators"] += len(
                             sensitive_fields
@@ -3480,6 +3490,10 @@ def run_website_analysis(
                     outcome = "reviewed"
 
                 elif 300 <= status < 400:
+                    anonymous_endpoint_observations[endpoint_url] = {
+                        "status": status,
+                        "sensitive_fields": [],
+                    }
                     details = (
                         f"HTTP {status}; redirect was not followed to avoid "
                         "changing the approved request boundary."
@@ -3487,6 +3501,10 @@ def run_website_analysis(
                     outcome = "redirect_not_followed"
 
                 else:
+                    anonymous_endpoint_observations[endpoint_url] = {
+                        "status": status,
+                        "sensitive_fields": [],
+                    }
                     details = (
                         f"HTTP {status}; no authenticated request was made."
                     )
@@ -3510,6 +3528,170 @@ def run_website_analysis(
                     f"{type(exc).__name__}: {str(exc)[:700]}",
                 )
                 db.commit()
+
+    # Optional credentialed comparison uses only encrypted profiles
+    # attached to this exact approved host. Tokens are passed per request,
+    # never placed in job input, logs, URLs, or evidence.
+    if (
+        auth_profiles
+        and credential_reserve
+        and api_endpoint_candidates
+        and not stats["stopped"]
+    ):
+        used_profile_ids = set()
+        credential_request_count = 0
+        profiles = list(auth_profiles)[:3]
+
+        for endpoint_url in api_endpoint_candidates:
+            for profile in profiles:
+                if (
+                    credential_request_count
+                    >= CREDENTIALLED_ENDPOINT_ASSESSMENT_LIMIT
+                    or stats["total_requests"] >= max_pages
+                ):
+                    break
+                if stop_event is not None and stop_event.is_set():
+                    stats["stopped"] = True
+                    break
+
+                auth_type = str(profile.get("auth_type", "")).lower()
+                secret = str(profile.get("secret", ""))
+                if (
+                    auth_type not in {"bearer", "cookie"}
+                    or not secret
+                    or "\\r" in secret
+                    or "\\n" in secret
+                ):
+                    _save_check(
+                        db, project_id, endpoint_url,
+                        "Credentialed API access comparison",
+                        "skipped",
+                        "A stored credential profile has an unsupported or invalid format.",
+                    )
+                    continue
+
+                if robots_available and not robots.can_fetch(
+                    USER_AGENT, endpoint_url
+                ):
+                    _save_check(
+                        db, project_id, endpoint_url,
+                        "Credentialed API access comparison",
+                        "skipped",
+                        "robots.txt disallowed this endpoint; no authenticated request sent.",
+                    )
+                    continue
+
+                if stop_event is not None:
+                    if stop_event.wait(delay_seconds):
+                        stats["stopped"] = True
+                        break
+                elif stats["total_requests"] > 0:
+                    time.sleep(delay_seconds)
+
+                if stop_event is not None and stop_event.is_set():
+                    stats["stopped"] = True
+                    break
+                if stats["total_requests"] >= max_pages:
+                    break
+
+                request_headers = (
+                    {"Authorization": f"Bearer {secret}"}
+                    if auth_type == "bearer"
+                    else {"Cookie": secret}
+                )
+                try:
+                    client.cookies.clear()
+                    stats["total_requests"] += 1
+                    stats["credentialed_api_requests"] += 1
+                    credential_request_count += 1
+                    used_profile_ids.add(profile.get("id"))
+                    response = _read_limited_response(
+                        client, endpoint_url, request_headers=request_headers
+                    )
+                    client.cookies.clear()
+
+                    status = response["status"]
+                    content_type = response["headers"].get(
+                        "content-type", ""
+                    )
+                    field_names = (
+                        _anonymous_api_sensitive_fields(
+                            content_type, response["body"]
+                        )
+                        if 200 <= status < 300 else []
+                    )
+                    anonymous = anonymous_endpoint_observations.get(
+                        endpoint_url, {}
+                    )
+                    anonymous_status = anonymous.get("status")
+                    anonymous_fields = set(
+                        anonymous.get("sensitive_fields", [])
+                    )
+                    status_changed = (
+                        anonymous_status is not None
+                        and status != anonymous_status
+                    )
+                    field_names_changed = set(field_names) != anonymous_fields
+                    difference = status_changed or field_names_changed
+                    if difference:
+                        stats["credentialed_response_differences"] += 1
+
+                    profile_name = str(profile.get("name", "test account"))[:120]
+                    role_label = str(
+                        profile.get("role_label", "unspecified role")
+                    )[:80]
+                    details = {
+                        "profile_name": profile_name,
+                        "role_label": role_label,
+                        "auth_type": auth_type,
+                        "anonymous_status": anonymous_status,
+                        "credentialed_status": status,
+                        "status_changed": status_changed,
+                        "sensitive_field_names": field_names,
+                        "sensitive_field_names_changed": field_names_changed,
+                        "response_truncated": bool(response.get("truncated")),
+                        "credential_values_recorded": False,
+                        "response_values_recorded": False,
+                        "interpretation": (
+                            "Behavioral difference for a researcher-owned "
+                            "test account. This is evidence for manual role "
+                            "and authorization review, not proof of a flaw."
+                            if difference else
+                            "No difference in status or recognized field names "
+                            "was observed for this request."
+                        ),
+                    }
+                    _save_check(
+                        db, project_id, endpoint_url,
+                        "Credentialed API access comparison",
+                        "difference_observed" if difference else "completed",
+                        json.dumps(details, ensure_ascii=False)[:5000],
+                    )
+                    db.commit()
+
+                except Exception as exc:
+                    client.cookies.clear()
+                    stats["requests_failed"] += 1
+                    _save_check(
+                        db, project_id, endpoint_url,
+                        "Credentialed API access comparison",
+                        "failed",
+                        (
+                            "Request failed; credential material was not "
+                            f"recorded. Error type: {type(exc).__name__}."
+                        ),
+                    )
+                    db.commit()
+
+            if stats["stopped"] or (
+                credential_request_count
+                >= CREDENTIALLED_ENDPOINT_ASSESSMENT_LIMIT
+            ):
+                break
+
+        stats["credential_profiles_used"] = len(
+            used_profile_ids - {None}
+        )
 
     endpoint_checks_remaining = bool(
         endpoint_reserve
