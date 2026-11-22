@@ -1,0 +1,68 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env}
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - bughunter-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - backend
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.cloud
+    restart: unless-stopped
+    command: ["uvicorn", "app.api.server:app", "--host", "0.0.0.0", "--port", "8765"]
+    environment:
+      BUGHUNTER_API_SECRET: ${BUGHUNTER_API_SECRET:?Set BUGHUNTER_API_SECRET in .env}
+      BUGHUNTER_DATABASE_URL: ${BUGHUNTER_DATABASE_URL:?Set BUGHUNTER_DATABASE_URL in .env}
+      BUGHUNTER_DATA_DIR: /app/data
+    ports:
+      - "127.0.0.1:8765:8765"
+    volumes:
+      - bughunter-data:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks:
+      - backend
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.cloud
+    restart: unless-stopped
+    command: ["python", "-m", "app.services.hunt_daemon"]
+    environment:
+      BUGHUNTER_API_SECRET: ${BUGHUNTER_API_SECRET:?Set BUGHUNTER_API_SECRET in .env}
+      BUGHUNTER_DATABASE_URL: ${BUGHUNTER_DATABASE_URL:?Set BUGHUNTER_DATABASE_URL in .env}
+      BUGHUNTER_DATA_DIR: /app/data
+    volumes:
+      - bughunter-data:/app/data
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - backend
+
+volumes:
+  bughunter-postgres:
+  bughunter-data:
+
+networks:
+  backend:
+    driver: bridge
