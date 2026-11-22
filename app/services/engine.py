@@ -2526,6 +2526,9 @@ def run_website_analysis(
         "credentialed_response_differences": 0,
         "role_comparisons_completed": 0,
         "role_differences_observed": 0,
+        "object_reference_candidates": 0,
+        "object_references_seen_across_roles": 0,
+        "object_reference_summaries": 0,
         "client_routes_discovered": 0,
         "javascript_assets_checked": 0,
         "source_maps_discovered": 0,
@@ -3425,6 +3428,17 @@ def run_website_analysis(
                 content_type = response["headers"].get(
                     "content-type", ""
                 )
+                if 200 <= status < 300:
+                    candidates_found = discover_object_references(
+                        content_type, response["body"], object_reference_salt
+                    )
+                    for candidate in candidates_found:
+                        object_reference_observations.append({
+                            "endpoint": endpoint_url,
+                            "role_label": "anonymous",
+                            "candidate": candidate,
+                        })
+                    stats["object_reference_candidates"] += len(candidates_found)
                 stats["anonymous_api_responses"] += int(
                     200 <= status < 300
                 )
@@ -3538,6 +3552,13 @@ def run_website_analysis(
 
     credential_checks_remaining = False
     authorization_observations = []
+    object_reference_observations = []
+    import secrets
+    object_reference_salt = secrets.token_bytes(32)
+    from app.services.object_reference_discovery import (
+        discover_object_references,
+        summarize_object_reference_observations,
+    )
     # Optional credentialed comparison uses only encrypted profiles
     # attached to this exact approved host. Tokens are passed per request,
     # never placed in job input, logs, URLs, or evidence.
@@ -3629,6 +3650,17 @@ def run_website_analysis(
                         )
                         if 200 <= status < 300 else []
                     )
+                    if 200 <= status < 300:
+                        candidates_found = discover_object_references(
+                            content_type, response["body"], object_reference_salt
+                        )
+                        for candidate in candidates_found:
+                            object_reference_observations.append({
+                                "endpoint": endpoint_url,
+                                "role_label": str(profile.get("role_label", "test account"))[:80],
+                                "candidate": candidate,
+                            })
+                        stats["object_reference_candidates"] += len(candidates_found)
                     anonymous = anonymous_endpoint_observations.get(
                         endpoint_url, {}
                     )
@@ -3715,6 +3747,24 @@ def run_website_analysis(
         credential_checks_remaining = (
             credential_request_count < maximum_credential_requests
         )
+
+    if object_reference_observations:
+        reference_summaries = summarize_object_reference_observations(
+            object_reference_observations
+        )
+        stats["object_reference_summaries"] = len(reference_summaries)
+        stats["object_references_seen_across_roles"] = sum(
+            int(item["observed_across_multiple_roles"])
+            for item in reference_summaries
+        )
+        for summary in reference_summaries:
+            _save_check(
+                db, project_id, summary["endpoint"],
+                "Object reference discovery",
+                "shared_across_roles" if summary["observed_across_multiple_roles"] else "candidate_discovered",
+                json.dumps(summary, ensure_ascii=False)[:8000],
+            )
+        db.commit()
 
     if authorization_observations:
         from app.services.authorization_analysis import (
