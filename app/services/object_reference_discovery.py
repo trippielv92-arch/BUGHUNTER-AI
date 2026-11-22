@@ -126,6 +126,7 @@ def summarize_object_reference_observations(observations):
             "json_pointer": pointer,
             "field_name": field_name,
             "value_type": str(candidate.get("value_type") or "")[:20],
+            "registry_fingerprint": str(candidate.get("registry_fingerprint") or ""),
         })
 
     summaries = []
