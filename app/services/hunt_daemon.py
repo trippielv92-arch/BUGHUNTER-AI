@@ -35,10 +35,13 @@ class JobStopSignal:
     def is_set(self):
         if STOP.is_set():
             return True
-        status = self.db.execute(
-            text("SELECT status FROM assessment_jobs WHERE id=:id"),
-            {"id": self.job_id},
-        ).scalar_one_or_none()
+        # Use a fresh connection so a long-lived ORM transaction cannot
+        # retain a stale SQLite read snapshot after the UI commits a stop.
+        with engine.connect() as connection:
+            status = connection.execute(
+                text("SELECT status FROM assessment_jobs WHERE id=:id"),
+                {"id": self.job_id},
+            ).scalar_one_or_none()
         return status != "running"
 
     def wait(self, seconds):
