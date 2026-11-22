@@ -85,3 +85,17 @@ def test_invalid_or_incomplete_observations_are_ignored():
         _observation(status=700),
     ])
     assert result == []
+
+
+
+def test_endpoint_query_and_concrete_numeric_object_ids_are_redacted():
+    summary = analyze_object_ownership_observations([
+        _observation(
+            endpoint="https://app.example.test/api/records/987654?token=secret"
+        )
+    ])[0]
+    assert summary["endpoint"] == (
+        "https://app.example.test/api/records/{id}"
+    )
+    assert "987654" not in str(summary)
+    assert "token=secret" not in str(summary)
