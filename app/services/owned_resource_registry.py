@@ -6,6 +6,7 @@ No requests are made by this module.
 """
 import hashlib
 import hmac
+import re
 from urllib.parse import urlsplit
 
 from sqlalchemy import select
@@ -132,9 +133,24 @@ def register_researcher_owned_resource(
     ):
         raise ValueError("Resource reference must be 1 to 512 printable characters.")
 
+    if reference in template:
+        raise ValueError("Endpoint template must not contain the raw resource identifier.")
+
     note = str(attestation_note or "").strip()
     if len(note) < 20 or len(note) > 2000:
         raise ValueError("Ownership attestation note must contain 20 to 2000 characters.")
+    if re.search(
+        rf"(?<![A-Za-z0-9]){re.escape(reference)}(?![A-Za-z0-9])",
+        note,
+    ):
+        raise ValueError("Ownership attestation note must not contain the raw resource identifier.")
+    if re.search(
+        r"(?i)\\b(?:authorization\\s*[:=]|cookie\\s*[:=]|"
+        r"session\\s*[:=]|token\\s*[:=]|api[_-]?key\\s*[:=]|"
+        r"password\\s*[:=]|secret\\s*[:=]|bearer\\s+[A-Za-z0-9._~+/=-]{12,})",
+        note,
+    ):
+        raise ValueError("Ownership attestation note must not contain credentials or secret values.")
 
     fingerprint = fingerprint_resource_reference(reference, project_id)
     duplicate = db.scalar(
