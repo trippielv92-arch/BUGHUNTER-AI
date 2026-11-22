@@ -798,7 +798,6 @@ def _verify_registered_owned_resources(
             processed += 1
             continue
 
-        stats["owned_resource_owner_checks_passed"] += 1
         owner_body = owner_response["body"]
         owner_truncated = owner_response.get("truncated", False)
         owner_content_type = owner_response.get("headers", {}).get(
@@ -827,6 +826,8 @@ def _verify_registered_owned_resources(
             db.commit()
             processed += 1
             continue
+
+        stats["owned_resource_owner_checks_passed"] += 1
 
         for requester in requesters:
             if request_count >= OWNED_RESOURCE_VERIFICATION_LIMIT or stats["stopped"]:
