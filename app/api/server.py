@@ -937,6 +937,95 @@ def review_program_asset_api(
 
 
 @app.post(
+    "/api/v1/projects/{project_id}/program-assets/propose-clear-hostnames",
+    status_code=200,
+)
+def propose_clear_program_hostnames_api(
+    project_id: int,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    """Bulk-propose only explicit, exact-host inclusion candidates.
+
+    This is not approval. Wildcards, IP ranges, IP literals, URLs and
+    ambiguous/low-confidence entries are intentionally excluded.
+    """
+    project = _require_owned_project(db, project_id)
+    if project.status == "deleted":
+        raise HTTPException(status_code=409, detail="Archived projects are read-only.")
+
+    from app.models.entities import ProgramPolicy
+    latest_policy = db.scalar(
+        select(ProgramPolicy)
+        .where(ProgramPolicy.project_id == project_id)
+        .order_by(ProgramPolicy.version_number.desc())
+        .limit(1)
+    )
+    if latest_policy is None:
+        raise HTTPException(status_code=409, detail="Analyze the programme policy first.")
+
+    candidates = db.scalars(
+        select(ProgramAsset)
+        .where(
+            ProgramAsset.project_id == project_id,
+            ProgramAsset.policy_id == latest_policy.id,
+            ProgramAsset.disposition == "included_candidate",
+            ProgramAsset.asset_type == "hostname",
+            ProgramAsset.confidence == "medium",
+        )
+        .order_by(ProgramAsset.id.asc())
+    ).all()
+
+    existing = {
+        str(item.host).strip().lower().rstrip(".")
+        for item in db.scalars(
+            select(ScopeAsset).where(ScopeAsset.project_id == project_id)
+        ).all()
+    }
+    proposed = []
+    skipped_existing = []
+    for candidate in candidates:
+        host = candidate.asset.strip().lower().rstrip(".")
+        if host in existing:
+            skipped_existing.append(host)
+            continue
+        try:
+            asset = add_scope_asset(
+                db,
+                project_id,
+                host,
+                included=True,
+                notes=(
+                    f"Proposed from policy version {latest_policy.version_number}; "
+                    f"candidate #{candidate.id}; explicit inclusion wording detected. "
+                    "Not authorized until the complete scope is separately approved."
+                ),
+            )
+        except ValueError as exc:
+            # Duplicate rows are harmless; invalid values are not proposed.
+            if "already registered" in str(exc):
+                skipped_existing.append(host)
+                continue
+            raise HTTPException(status_code=400, detail=str(exc))
+        proposed.append({"id": asset.id, "host": asset.host})
+        existing.add(host)
+
+    return {
+        "policy_version": latest_policy.version_number,
+        "proposed_count": len(proposed),
+        "skipped_existing_count": len(skipped_existing),
+        "proposed": proposed,
+        "excluded_candidates_never_proposed": True,
+        "broad_or_non_host_assets_never_proposed": True,
+        "approved": False,
+        "message": (
+            "Clear exact-host inclusion candidates were added to proposed scope. "
+            "Review the complete list and approve it before any target testing."
+        ),
+    }
+
+
+@app.post(
     "/api/v1/projects/{project_id}/program-assets/{asset_id}/add-to-scope",
     status_code=201,
 )
