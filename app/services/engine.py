@@ -16,6 +16,7 @@ This module performs non-destructive GET requests only.
 """
 
 import json
+import html
 from urllib.parse import parse_qsl
 import re
 import time
@@ -2436,7 +2437,11 @@ def _analyze_reflected_query_inputs(
                 "query_values_recorded": False,
             }),
         )
-        return {"parameters_reviewed": 0, "reflected_parameters": 0}
+        return {
+            "parameters_reviewed": 0,
+            "reflected_parameters": 0,
+            "unescaped_reflected_parameters": 0,
+        }
 
     if not parameters:
         _save_check(
@@ -2448,7 +2453,11 @@ def _analyze_reflected_query_inputs(
                 "query_values_recorded": False,
             }),
         )
-        return {"parameters_reviewed": 0, "reflected_parameters": 0}
+        return {
+            "parameters_reviewed": 0,
+            "reflected_parameters": 0,
+            "unescaped_reflected_parameters": 0,
+        }
 
     response_text = body.decode("utf-8", errors="replace")
     sensitive_name_pattern = re.compile(
@@ -2459,7 +2468,16 @@ def _analyze_reflected_query_inputs(
 
     reviewed_names = []
     reflected_names = []
+    unescaped_reflected_names = []
     redacted_count = 0
+    normalized_content_type = str(content_type or "").lower()
+    html_response = (
+        (
+            "text/html" in normalized_content_type
+            or "application/xhtml+xml" in normalized_content_type
+        )
+        and not truncated
+    )
 
     for name, value in parameters[:100]:
         safe_name = re.sub(r"[^a-zA-Z0-9_.-]", "_", name)[:80]
@@ -2480,11 +2498,19 @@ def _analyze_reflected_query_inputs(
 
         if value in response_text:
             reflected_names.append(safe_name or "[unnamed]")
+            if (
+                html_response
+                and any(character in value for character in "<>\\\"'")
+                and html.escape(value, quote=True) not in response_text
+            ):
+                unescaped_reflected_names.append(safe_name or "[unnamed]")
 
     result = {
         "query_parameter_count": len(parameters),
         "parameters_reviewed": len(reviewed_names),
         "reflected_parameter_names": sorted(set(reflected_names))[:50],
+        "unescaped_reflected_parameter_names": sorted(set(unescaped_reflected_names))[:50],
+        "html_context_reviewed": html_response,
         "sensitive_parameter_names_omitted": redacted_count,
         "response_content_type": str(content_type or "")[:160],
         "response_truncated": bool(truncated),
@@ -2506,10 +2532,42 @@ def _analyze_reflected_query_inputs(
         "completed",
         json.dumps(result)[:8000],
     )
+    if unescaped_reflected_names:
+        _save_finding(
+            db=db,
+            project_id=project_id,
+            title="Potential reflected XSS from unescaped query input",
+            category="XSS",
+            severity="medium",
+            confidence="low",
+            asset=safe_asset,
+            description=(
+                "A non-sensitive query parameter value containing HTML-special "
+                "characters was observed verbatim in an HTML response without "
+                "its HTML-escaped representation. This is a reflection lead, "
+                "not proof of script execution or a specific output context."
+            ),
+            evidence=json.dumps({
+                "unescaped_reflected_parameter_names": sorted(
+                    set(unescaped_reflected_names)
+                )[:50],
+                "response_content_type": str(content_type or "")[:160],
+                "response_truncated": bool(truncated),
+                "query_values_recorded": False,
+                "payloads_executed": False,
+                "auto_confirmed": False,
+            })[:4000],
+            remediation=(
+                "Review the exact output context and apply context-appropriate "
+                "HTML, attribute, JavaScript, or URL encoding. Reproduce only "
+                "with an inert marker in a researcher-controlled test account."
+            ),
+        )
 
     return {
         "parameters_reviewed": len(reviewed_names),
         "reflected_parameters": len(set(reflected_names)),
+        "unescaped_reflected_parameters": len(set(unescaped_reflected_names)),
     }
 
 
@@ -2873,6 +2931,7 @@ def run_website_analysis(
         "mixed_content_pages": 0,
         "insecure_form_pages": 0,
         "csrf_candidate_forms_detected": 0,
+        "unescaped_reflected_query_parameters": 0,
         "sql_error_indicators_detected": 0,
         "api_sensitive_fields_detected": 0,
         "api_verbose_errors_detected": 0,
@@ -3046,13 +3105,16 @@ def run_website_analysis(
 
                 # Assess existing query inputs against this already-fetched
                 # response. This performs no additional network requests.
-                _analyze_reflected_query_inputs(
+                reflection_stats = _analyze_reflected_query_inputs(
                     db,
                     project_id,
                     url,
                     content_type,
                     response["body"],
                     truncated=response["truncated"],
+                )
+                stats["unescaped_reflected_query_parameters"] += (
+                    reflection_stats["unescaped_reflected_parameters"]
                 )
                 stats["api_sensitive_fields_detected"] += (
                     api_stats["sensitive_fields"]
