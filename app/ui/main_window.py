@@ -334,7 +334,7 @@ class Window(QMainWindow):
    assets = self.api_client.list_project_resource(project_id, "assets")
    approved = [
     asset for asset in assets
-    if asset.get("included") and asset.get("approved")
+    if asset.get("included") and asset.get("approved") and asset.get("host")
    ]
    if not approved:
     QMessageBox.warning(
@@ -343,38 +343,43 @@ class Window(QMainWindow):
     )
     return
 
-   hosts = [asset.get("host", "") for asset in approved if asset.get("host")]
-   selected, accepted = QInputDialog.getItem(
-    self,
-    "Start cloud hunt",
-    "Choose an explicitly approved asset to assess:",
-    hosts,
-    0,
-    False,
-   )
-   if not accepted or not selected:
-    return
+   queued = []
+   for asset in approved:
+    host = asset["host"]
+    job = self.api_client.start_hunt(
+     project_id,
+     f"https://{host}/",
+     max_pages=25,
+    )
+    queued.append((job.get("id"), host))
 
-   job = self.api_client.start_hunt(
-    project_id,
-    f"https://{selected}/",
-    max_pages=25,
+   summary = "\n".join(
+    f"Job #{job_id}: {host}" for job_id, host in queued
    )
    self.statusBar().showMessage(
-    f"Cloud hunt #{job.get('id')} queued for {selected}."
+    f"Queued {len(queued)} cloud hunt(s) for project #{project_id}."
    )
    QMessageBox.information(
     self,
-    "Cloud hunt queued",
-    f"Hunt job #{job.get('id')} was queued on the cloud server. "
-    "It continues independently of this desktop.\n\n"
-    "Current automated coverage is passive discovery and bounded HTTPS "
-    "GET inventory, not comprehensive vulnerability verification.",
+    "Cloud hunts queued",
+    f"Queued {len(queued)} independent cloud hunt job(s):\n\n"
+    f"{summary}\n\n"
+    "They continue independently of this desktop. Current automated "
+    "coverage is passive discovery and bounded HTTPS GET inventory, "
+    "not comprehensive vulnerability verification.",
    )
   except APIError as exc:
-   QMessageBox.warning(self, "Cloud hunt", str(exc))
+   if queued:
+    QMessageBox.warning(
+     self,
+     "Cloud hunt partially queued",
+     f"Queued {len(queued)} job(s) before the API returned an error:\n"
+     f"{exc}",
+    )
+   else:
+    QMessageBox.warning(self, "Cloud hunt", str(exc))
   except Exception as exc:
-   QMessageBox.warning(self, "Cloud hunt", f"Could not queue hunt: {exc}")
+   QMessageBox.warning(self, "Cloud hunt", f"Could not queue hunts: {exc}")
 
  def analyze_remote_program(self):
   project = self.remote_project
@@ -673,6 +678,7 @@ class Window(QMainWindow):
    )
    self.remote_project_id = None
    self.remote_project = None
+   self.remote_start_hunt_button.setEnabled(False)
    self.statusBar().showMessage(f"Loaded {len(projects)} remote project(s).")
   except APIError as exc:
    QMessageBox.warning(self, "Refresh projects", str(exc))
