@@ -118,6 +118,17 @@ RULE_PATTERNS = {
         r"\bpii\b", r"\bdelete test data\b",
         r"\bdo not access real user data\b",
     ),
+    "vulnerability_eligibility": (
+        r"\bnot eligible\b", r"\bineligible\b",
+        r"\bnot accepted\b", r"\baccepted vulnerabilities?\b",
+        r"\beligible reports?\b", r"\bvalid vulnerability reports?\b",
+        r"\bout of scope\b",
+    ),
+    "reward_and_severity": (
+        r"\bbounty\b", r"\breward(?:s|ed)?\b",
+        r"\bpayout\b", r"\bcvss\b",
+        r"\bseverity levels?\b", r"\bcritical severity\b",
+    ),
 }
 
 
