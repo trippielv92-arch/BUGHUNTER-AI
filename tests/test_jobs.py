@@ -17,7 +17,8 @@ from app.services.projects import (
 
 @pytest.fixture
 def approved_project(db):
-    project = create_project(db, "Job test project")
+    project = create_project(db, "Job test project", "https://example.com")
+    project.policy_text = "Authorized test policy for example.com."
     add_scope_asset(db, project.id, "example.com")
     approve_scope(db, project)
     return project
