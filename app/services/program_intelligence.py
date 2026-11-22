@@ -257,7 +257,11 @@ def _extract_assets(policy_text, programme_url):
                 )
                 if exact_https_origin:
                     asset = host
-                    asset_type = "hostname"
+                    try:
+                        ipaddress.ip_address(host)
+                        asset_type = "ip_address"
+                    except ValueError:
+                        asset_type = "hostname"
                 else:
                     asset = raw_url
                     asset_type = (
