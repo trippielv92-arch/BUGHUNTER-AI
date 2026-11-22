@@ -27,7 +27,8 @@ def test_excludes_secrets_personal_fields_and_boolean_ids():
         b'"email":"private@example.test","customer_id":"cust-123"}'
     )
     result = discover_object_references("application/json", body, SALT)
-    assert result == []
+    assert [item["field_name"] for item in result] == ["customer_id"]
+    assert "cust-123" not in str(result)
 
 
 def test_uses_per_hunt_salt_for_fingerprints():
