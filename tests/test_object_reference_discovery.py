@@ -61,6 +61,7 @@ def test_correlates_same_reference_across_test_account_roles():
     ])
     assert len(result) == 1
     assert result[0]["observed_across_multiple_roles"] is True
+    assert result[0]["registry_fingerprint"] is None
     assert result[0]["roles_observing_reference"] == ["owner", "viewer"]
     assert result[0]["ownership_verified"] is False
     assert result[0]["network_requests_to_candidate_references"] == 0
@@ -88,15 +89,28 @@ def test_summary_ignores_malformed_observations():
         None, {}, {"endpoint": "https://app.example.test", "candidate": {}}
     ]) == []
 
-def test_registry_fingerprint_matches_only_with_project_key():
-    from app.services.owned_resource_registry import fingerprint_resource_reference
-
-    key = b"project-scoped-test-key-material"
-    body = b'{"record_id":"synthetic-owned-record"}'
-    result = discover_object_references(
-        "application/json", body, SALT, fingerprint_key=key
+def test_registry_fingerprint_matches_registry_service(monkeypatch):
+    from cryptography.fernet import Fernet
+    from app.services.owned_resource_registry import (
+        derive_project_fingerprint_key,
+        fingerprint_resource_reference,
     )
-    assert result[0]["registry_fingerprint"]
+
+    monkeypatch.setenv(
+        "BUGHUNTER_CREDENTIAL_ENCRYPTION_KEY",
+        Fernet.generate_key().decode("ascii"),
+    )
+    reference = "synthetic-owned-record"
+    key = derive_project_fingerprint_key(7)
+    result = discover_object_references(
+        "application/json",
+        b'{"record_id":"synthetic-owned-record"}',
+        SALT,
+        fingerprint_key=key,
+    )
+    assert result[0]["registry_fingerprint"] == fingerprint_resource_reference(
+        reference, 7
+    )
     assert result[0]["registry_fingerprint"] != result[0]["fingerprint"]
 
 
