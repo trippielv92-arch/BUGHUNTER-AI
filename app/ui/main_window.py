@@ -39,6 +39,8 @@ class Window(QMainWindow):
   self.setWindowTitle("BugHunter AI — Personal Security Research")
   self.resize(1080,740)
   self.setStyleSheet(STYLE)
+  self._last_hunt_snapshot=None
+  self._refreshing_hunt_dashboard=False
   self.job_refresh_timer=QTimer(self)
   self.job_refresh_timer.setInterval(2500)
   self.job_refresh_timer.timeout.connect(self.refresh_evidence_jobs)
@@ -2729,6 +2731,20 @@ class Window(QMainWindow):
     self.website_status.setText(f"Hunt #{latest.id}: {latest.status.upper()} ({latest.progress}%)"+detail)
    else:
     self.website_status.setText("No automated hunt has been queued for this project.")
+
+   snapshot=(latest.id,latest.status) if latest else None
+   previous=self._last_hunt_snapshot
+   self._last_hunt_snapshot=snapshot
+   if (
+    previous is not None
+    and previous != snapshot
+    and not self._refreshing_hunt_dashboard
+   ):
+    self._refreshing_hunt_dashboard=True
+    try:
+     self.refresh_all()
+    finally:
+     self._refreshing_hunt_dashboard=False
 
  def attach_evidence_ui(self):
   try:
