@@ -154,7 +154,7 @@ def test_no_explicit_restriction_keeps_conservative_default():
 def test_scope_heading_does_not_leak_into_later_policy_sections():
     result = analyze_program_policy(
         "https://program.example.org",
-        "In Scope:\\napp.example.org\\nProgram Rules:\\n"
+        "In Scope:\napp.example.org\nProgram Rules:\n"
         "status.example.org is mentioned as an example",
     )
     included = {item["asset"] for item in result["scope"]["included_candidates"]}
