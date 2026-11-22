@@ -258,6 +258,20 @@ def _safe_anonymous_get_endpoint(endpoint, origin):
         if "{" in path or "}" in path or len(path) > 1500:
             return None
 
+        path_segments = [
+            segment for segment in path.split("/") if segment
+        ]
+        # Never probe a concrete object identifier discovered in a URL;
+        # that could cross into another researcher's or customer's record.
+        object_id_pattern = re.compile(
+            r"(?:\\d{1,20}|[0-9a-f]{8}-[0-9a-f]{4}-"
+            r"[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|"
+            r"[A-Za-z0-9_-]{28,})",
+            re.IGNORECASE,
+        )
+        if any(object_id_pattern.fullmatch(segment) for segment in path_segments):
+            return None
+
         blocked = SKIP_PATH_WORDS | {
             "search", "export", "download", "report", "generate",
             "callback", "redirect", "webhook", "create", "update",
