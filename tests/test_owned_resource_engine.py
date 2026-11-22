@@ -270,7 +270,7 @@ def test_engine_does_not_test_other_accounts_when_owner_get_is_soft_denied(
     )
 
     assert requests == [{"Authorization": "Bearer owner-test-token"}]
-    assert stats["owned_resource_owner_checks_passed"] == 1
+    assert stats["owned_resource_owner_checks_passed"] == 0
     assert stats["cross_account_access_leads"] == 0
     check = db.scalar(select(ScanCheck).where(
         ScanCheck.project_id == project.id,
