@@ -290,3 +290,14 @@ def test_exact_ip_url_is_not_bulk_proposed_as_a_hostname():
     assert len(candidates) == 1
     assert candidates[0]["asset"] == "192.0.2.44"
     assert candidates[0]["type"] == "ip_address"
+
+
+def test_mobile_bundle_identifier_is_not_treated_as_a_hostname():
+    result = analyze_program_policy(
+        "https://program.example.org",
+        "In scope Android package identifier: com.acme.mobileapp",
+    )
+    candidates = result["scope"]["included_candidates"]
+    assert len(candidates) == 1
+    assert candidates[0]["asset"] == "com.acme.mobileapp"
+    assert candidates[0]["type"] == "mobile_app_identifier"
