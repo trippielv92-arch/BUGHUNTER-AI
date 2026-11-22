@@ -585,7 +585,7 @@ class ResearcherOwnedResourceCreate(BaseModel):
     endpoint_template: str = Field(min_length=1, max_length=2048)
     owner_profile_id: int = Field(gt=0)
     resource_reference: str = Field(min_length=1, max_length=512)
-    attestation_note: str = Field(min_length=10, max_length=2000)
+    attestation_note: str = Field(min_length=20, max_length=2000)
 
 
 class ResearcherOwnedResourceOut(BaseModel):
