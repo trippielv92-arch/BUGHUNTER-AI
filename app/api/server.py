@@ -18,6 +18,7 @@ from app.database.db import SessionLocal, init_db
 from app.models.entities import (
     User, Project, ScopeAsset, Finding, FindingReview, Activity,
     ScanCheck, Endpoint, TestCase, Evidence, AssessmentJob, ProgramAsset,
+    TestCredentialProfile,
 )
 from app.services.auth import authenticate
 from app.services.projects import (
@@ -555,6 +556,27 @@ class TestCaseUpdate(BaseModel):
     status: str = Field(min_length=1, max_length=40)
     target: str | None = Field(default=None, max_length=2048)
     notes: str | None = Field(default=None, max_length=100000)
+
+
+class TestCredentialProfileCreate(BaseModel):
+    host: str = Field(min_length=1, max_length=253)
+    name: str = Field(min_length=1, max_length=120)
+    role_label: str = Field(min_length=1, max_length=80)
+    auth_type: str = Field(min_length=1, max_length=20)
+    secret: str = Field(min_length=1, max_length=8192)
+
+
+class TestCredentialProfileOut(BaseModel):
+    id: int
+    host: str
+    name: str
+    role_label: str
+    auth_type: str
+    enabled: bool
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
 
 
 class FindingReviewUpdate(BaseModel):
@@ -1110,3 +1132,68 @@ def add_program_asset_to_scope_api(
         "notes": scope_asset.notes,
         "message": "Added to proposed scope only. This asset is NOT approved for testing.",
     }
+
+
+@app.get(
+    "/api/v1/projects/{project_id}/test-credentials",
+    response_model=list[TestCredentialProfileOut],
+)
+def get_test_credential_profiles_api(
+    project_id: int,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    _require_owned_project(db, project_id)
+    from app.services.credential_vault import list_test_credential_profiles
+    return list_test_credential_profiles(db, project_id)
+
+
+@app.post(
+    "/api/v1/projects/{project_id}/test-credentials",
+    response_model=TestCredentialProfileOut,
+    status_code=201,
+)
+def create_test_credential_profile_api(
+    project_id: int,
+    data: TestCredentialProfileCreate,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    _require_owned_project(db, project_id)
+    from app.services.credential_vault import create_test_credential_profile
+    try:
+        return create_test_credential_profile(
+            db,
+            project_id,
+            data.host,
+            data.name,
+            data.role_label,
+            data.auth_type,
+            data.secret,
+        )
+    except ValueError as exc:
+        _service_error(db, exc)
+    except RuntimeError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=503,
+            detail=str(exc),
+        ) from exc
+
+
+@app.delete(
+    "/api/v1/projects/{project_id}/test-credentials/{profile_id}",
+    status_code=204,
+)
+def delete_test_credential_profile_api(
+    project_id: int,
+    profile_id: int,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    _require_owned_project(db, project_id)
+    from app.services.credential_vault import delete_test_credential_profile
+    try:
+        delete_test_credential_profile(db, project_id, profile_id)
+    except ValueError as exc:
+        _service_error(db, exc)
