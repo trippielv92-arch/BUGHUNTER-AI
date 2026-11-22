@@ -44,7 +44,7 @@ from app.services.projects import log_activity
 from app.services.workflows import validate_target, recommend_endpoint_tests
 
 
-MAX_PAGES = 25
+MAX_PAGES = 100
 MAX_RESPONSE_BYTES = 1_000_000
 MIN_DELAY_SECONDS = 0.5
 
