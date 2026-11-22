@@ -833,6 +833,7 @@ class Window(QMainWindow):
    self.refresh_remote_projects()
    self.remote_project_id = int(project["id"])
    self.remote_project = project
+   self.remote_policy_text.clear()
    self.remote_project_details.setPlainText(
     f"Created remote project #{project['id']}\n"
     f"Name: {project['name']}\n"
@@ -861,6 +862,7 @@ class Window(QMainWindow):
    project = self.api_client.get_project(int(project_id))
    self.remote_project_id = int(project_id)
    self.remote_project = project
+   self.remote_policy_text.clear()
    self.remote_start_hunt_button.setEnabled(
     bool(project.get("scope_approved"))
     and str(project.get("status", "")).lower() != "deleted"
