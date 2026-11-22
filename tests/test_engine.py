@@ -394,3 +394,152 @@ def test_run_website_analysis_performs_bounded_anonymous_api_review(
     assert "+254700000000" not in finding.evidence
     assert "email" in finding.evidence
     assert "phoneNumber" in finding.evidence
+
+
+def test_credentialed_api_comparison_uses_only_per_request_test_credentials(
+    db, monkeypatch
+):
+    from app.models.entities import Endpoint, ScanCheck
+
+    project = create_project(
+        db, "Controlled auth comparison", "https://example.com"
+    )
+    project.policy_text = "Authorized test policy for example.com."
+    add_scope_asset(db, project.id, "example.com")
+    approve_scope(db, project)
+    db.add(Endpoint(
+        project_id=project.id,
+        url="https://example.com/api/profile?token=must-not-be-replayed",
+        endpoint_type="OpenAPI documented API operation",
+        method="GET",
+        notes="Test-only discovered API route.",
+    ))
+    db.commit()
+
+    class FakeTransport:
+        def __init__(self, hostname):
+            assert hostname == "example.com"
+
+        def validate_dns(self):
+            return None
+
+        def close(self):
+            return None
+
+    class FakeCookies:
+        def __init__(self):
+            self.clear_count = 0
+
+        def clear(self):
+            self.clear_count += 1
+
+    class FakeClient:
+        instance = None
+
+        def __init__(self, **kwargs):
+            self.cookies = FakeCookies()
+            FakeClient.instance = self
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+    requests = []
+
+    def fake_read_response(client, url, request_headers=None):
+        requests.append((url, dict(request_headers or {})))
+        if url.endswith("/robots.txt"):
+            return {
+                "status": 404, "headers": {}, "body": b"",
+                "cookies": [], "truncated": False,
+            }
+        if url == "https://example.com/":
+            return {
+                "status": 200,
+                "headers": {"content-type": "text/html"},
+                "body": b"<html><body>home</body></html>",
+                "cookies": [], "truncated": False,
+            }
+        if url == "https://example.com/api/profile":
+            if not request_headers:
+                return {
+                    "status": 401,
+                    "headers": {"content-type": "application/json"},
+                    "body": b'{"detail":"login required"}',
+                    "cookies": [], "truncated": False,
+                }
+            if request_headers.get("Authorization") == "Bearer owner-token":
+                return {
+                    "status": 200,
+                    "headers": {"content-type": "application/json"},
+                    "body": b'{"email":"owner@example.test"}',
+                    "cookies": [], "truncated": False,
+                }
+            if request_headers.get("Cookie") == "session=standard-token":
+                return {
+                    "status": 200,
+                    "headers": {"content-type": "application/json"},
+                    "body": b'{"email":"standard@example.test"}',
+                    "cookies": [], "truncated": False,
+                }
+            raise AssertionError("Unexpected authentication header.")
+        return {
+            "status": 404, "headers": {}, "body": b"",
+            "cookies": [], "truncated": False,
+        }
+
+    monkeypatch.setattr(engine, "PinnedHTTPTransport", FakeTransport)
+    monkeypatch.setattr(engine.httpx, "Client", FakeClient)
+    monkeypatch.setattr(engine, "_read_limited_response", fake_read_response)
+    monkeypatch.setattr(engine.time, "sleep", lambda _seconds: None)
+
+    profiles = [
+        {
+            "id": 1, "name": "owner", "role_label": "owner",
+            "auth_type": "bearer", "secret": "owner-token",
+        },
+        {
+            "id": 2, "name": "standard", "role_label": "standard",
+            "auth_type": "cookie", "secret": "session=standard-token",
+        },
+    ]
+    stats = engine.run_website_analysis(
+        db,
+        project.id,
+        "https://example.com/",
+        max_pages=40,
+        delay_seconds=0.5,
+        auth_profiles=profiles,
+    )
+
+    assert stats["credentialed_api_requests"] == 2
+    assert stats["credential_profiles_used"] == 2
+    assert stats["credentialed_response_differences"] == 2
+    assert all(
+        url == "https://example.com/api/profile"
+        for url, headers in requests
+        if headers
+    )
+    assert any(
+        headers == {"Authorization": "Bearer owner-token"}
+        for _url, headers in requests
+    )
+    assert any(
+        headers == {"Cookie": "session=standard-token"}
+        for _url, headers in requests
+    )
+    assert FakeClient.instance.cookies.clear_count == 6
+
+    checks = db.query(ScanCheck).filter(
+        ScanCheck.project_id == project.id,
+        ScanCheck.check_name == "Credentialed API access comparison",
+    ).all()
+    assert len(checks) == 2
+    combined_details = " ".join(check.details for check in checks)
+    assert "owner-token" not in combined_details
+    assert "standard-token" not in combined_details
+    assert "owner@example.test" not in combined_details
+    assert "standard@example.test" not in combined_details
+    assert "email" in combined_details
