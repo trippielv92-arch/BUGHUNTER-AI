@@ -65,6 +65,7 @@ def analyze_and_store_program(db, project_id, manual_policy=""):
                 "scope": result["scope"],
                 "policy_topics": result["policy_topics"],
                 "rules": result["rules"],
+                "execution_controls": result["execution_controls"],
                 "warnings": result["warnings"],
             },
             ensure_ascii=False,
@@ -145,6 +146,7 @@ def list_program_policies(db, project_id):
                 "extraction_confidence": policy.extraction_confidence,
                 "review_status": policy.review_status,
                 "rules": json.loads(policy.extraction_json or "{}").get("rules", {}),
+                "execution_controls": json.loads(policy.extraction_json or "{}").get("execution_controls", {}),
                 "warnings": json.loads(policy.extraction_json or "{}").get("warnings", []),
                 "created_at": policy.created_at,
                 "assets": [
