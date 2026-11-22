@@ -163,6 +163,34 @@ class APIClient:
             f"/api/v1/projects/{int(project_id)}/test-credentials/{int(profile_id)}",
         )
 
+    def list_researcher_owned_resources(self, project_id):
+        return self.request(
+            "GET",
+            f"/api/v1/projects/{int(project_id)}/owned-resources",
+        )
+
+    def add_researcher_owned_resource(
+        self, project_id, host, endpoint_template, owner_profile_id,
+        resource_reference, attestation_note,
+    ):
+        return self.request(
+            "POST",
+            f"/api/v1/projects/{int(project_id)}/owned-resources",
+            json_data={
+                "host": host,
+                "endpoint_template": endpoint_template,
+                "owner_profile_id": int(owner_profile_id),
+                "resource_reference": resource_reference,
+                "attestation_note": attestation_note,
+            },
+        )
+
+    def delete_researcher_owned_resource(self, project_id, resource_id):
+        return self.request(
+            "DELETE",
+            f"/api/v1/projects/{int(project_id)}/owned-resources/{int(resource_id)}",
+        )
+
     def start_hunt(self, project_id, start_url, max_pages=100):
         return self.request(
             "POST",
