@@ -65,6 +65,11 @@ FAMILY_RULES = {
         "checks": ("Static JavaScript security pattern review",),
         "markers": ("potential_patterns", "unsafe_sinks", "dangerous_functions"),
     },
+    "xss": {
+        "finding_terms": ("xss", "cross-site scripting", "reflected html input"),
+        "checks": ("Query parameter reflection review",),
+        "markers": ("unescaped_reflected_parameter_names",),
+    },
     "sensitive": {
         "finding_terms": (
             "sensitive", "secret", "credential", "token", "api key",
