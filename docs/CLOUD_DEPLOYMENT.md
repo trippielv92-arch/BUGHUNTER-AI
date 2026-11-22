@@ -37,8 +37,7 @@ You must provide a VPS/cloud host, domain, TLS reverse proxy and backups.
 8. Create the first account interactively (the password is prompted, not placed
    in shell history):
 
-   docker compose --env-file .env -f docker-compose.cloud.yml exec api
-     python -m app.cli create-account --username YOUR_USERNAME
+   docker compose --env-file .env -f docker-compose.cloud.yml exec api python -m app.cli create-account --username YOUR_USERNAME
 
 The API binds to 127.0.0.1:8765 on the host, not to every public interface.
 Put it behind a TLS reverse proxy (for example Caddy or Nginx), expose HTTPS
