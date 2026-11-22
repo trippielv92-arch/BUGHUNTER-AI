@@ -570,9 +570,9 @@ def _save_finding(
                 if new_evidence and new_evidence not in current_evidence:
                     marker = "Additional evidence observations:"
                     addition = (
-                        f"\\n- {new_evidence}"
+                        f"\n- {new_evidence}"
                         if marker in current_evidence
-                        else f"\\n\\n{marker}\\n- {new_evidence}"
+                        else f"\n\n{marker}\n- {new_evidence}"
                     )
                     remaining = max(0, 20000 - len(current_evidence))
                     if remaining:
