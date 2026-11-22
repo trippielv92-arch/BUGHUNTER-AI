@@ -3629,7 +3629,13 @@ def run_website_analysis(
     from app.services.object_reference_discovery import (
         discover_object_references,
         summarize_object_reference_observations,
+        correlate_registered_resource_summaries,
     )
+    from app.services.owned_resource_registry import derive_project_fingerprint_key
+    try:
+        registry_fingerprint_key = derive_project_fingerprint_key(project_id)
+    except RuntimeError:
+        registry_fingerprint_key = None
     api_endpoint_candidates = []
     anonymous_endpoint_observations = {}
     if not stats["stopped"] and endpoint_reserve:
@@ -3698,7 +3704,8 @@ def run_website_analysis(
                 )
                 if 200 <= status < 300:
                     candidates_found = discover_object_references(
-                        content_type, response["body"], object_reference_salt
+                        content_type, response["body"], object_reference_salt,
+                            fingerprint_key=registry_fingerprint_key,
                     )
                     for candidate in candidates_found:
                         object_reference_observations.append({
@@ -3923,7 +3930,8 @@ def run_website_analysis(
                             )
                             if 200 <= status < 300:
                                 candidates_found = discover_object_references(
-                                    content_type, response["body"], object_reference_salt
+                                    content_type, response["body"], object_reference_salt,
+                            fingerprint_key=registry_fingerprint_key,
                                 )
                                 for candidate in candidates_found:
                                     object_reference_observations.append({
@@ -4029,6 +4037,23 @@ def run_website_analysis(
     if object_reference_observations:
         reference_summaries = summarize_object_reference_observations(
             object_reference_observations
+        )
+        from app.models.entities import ResearcherOwnedResource
+        registered_resources = db.scalars(
+            select(ResearcherOwnedResource).where(
+                ResearcherOwnedResource.project_id == project_id,
+                ResearcherOwnedResource.ownership_attested.is_(True),
+            )
+        ).all()
+        reference_summaries = correlate_registered_resource_summaries(
+            reference_summaries,
+            [
+                {
+                    "id": resource.id,
+                    "resource_fingerprint": resource.resource_fingerprint,
+                }
+                for resource in registered_resources
+            ],
         )
         stats["object_reference_summaries"] = len(reference_summaries)
         stats["object_references_seen_across_roles"] = sum(
