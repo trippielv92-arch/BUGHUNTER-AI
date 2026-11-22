@@ -664,7 +664,7 @@ class Window(QMainWindow):
     bool(self.remote_project.get("scope_approved"))
    )
    proposed = result.get("proposed", [])
-   summary = "\\n".join(
+   summary = "\n".join(
     item.get("host", "") for item in proposed
    ) or "No new exact hostnames qualified."
    self.remote_policy_status.setText(
@@ -674,10 +674,10 @@ class Window(QMainWindow):
    QMessageBox.information(
     self,
     "Proposed scope updated",
-    f"Policy version: {result.get('policy_version')}\\n"
-    f"New exact hostnames: {result.get('proposed_count', 0)}\\n"
-    f"Already present: {result.get('skipped_existing_count', 0)}\\n\\n"
-    f"{summary}\\n\\n"
+    f"Policy version: {result.get('policy_version')}\n"
+    f"New exact hostnames: {result.get('proposed_count', 0)}\n"
+    f"Already present: {result.get('skipped_existing_count', 0)}\n\n"
+    f"{summary}\n\n"
     "Review the proposed scope, then use APPROVE REMOTE SCOPE. "
     "No target testing has started.",
    )
