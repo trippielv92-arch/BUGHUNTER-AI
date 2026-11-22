@@ -273,3 +273,124 @@ def test_anonymous_api_endpoint_selection_skips_concrete_object_identifiers():
     assert engine._safe_anonymous_get_endpoint(
         endpoint, "https://example.com"
     ) is None
+
+
+def test_run_website_analysis_performs_bounded_anonymous_api_review(
+    db, monkeypatch
+):
+    from app.models.entities import Endpoint
+
+    project = create_project(
+        db, "Anonymous API review", "https://example.com"
+    )
+    project.policy_text = "Authorized test policy for example.com."
+    add_scope_asset(db, project.id, "example.com")
+    approve_scope(db, project)
+
+    db.add(Endpoint(
+        project_id=project.id,
+        url="https://example.com/api/profile?token=must-not-be-replayed",
+        endpoint_type="OpenAPI documented API operation",
+        method="GET",
+        notes="Test-only discovered API route.",
+    ))
+    db.add(Endpoint(
+        project_id=project.id,
+        url="https://example.com/api/profile/update",
+        endpoint_type="OpenAPI documented API operation",
+        method="POST",
+        notes="Must not be requested.",
+    ))
+    db.commit()
+
+    class FakeTransport:
+        def __init__(self, hostname):
+            assert hostname == "example.com"
+
+        def validate_dns(self):
+            return None
+
+        def close(self):
+            return None
+
+    class FakeCookies:
+        def __init__(self):
+            self.clear_count = 0
+
+        def clear(self):
+            self.clear_count += 1
+
+    class FakeClient:
+        instance = None
+
+        def __init__(self, **kwargs):
+            self.cookies = FakeCookies()
+            FakeClient.instance = self
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+    requests = []
+
+    def fake_read_response(client, url):
+        requests.append(url)
+        if url.endswith("/robots.txt"):
+            return {
+                "status": 404, "headers": {}, "body": b"",
+                "cookies": [], "truncated": False,
+            }
+        if url == "https://example.com/":
+            return {
+                "status": 200,
+                "headers": {"content-type": "text/html"},
+                "body": b"<html><body>home</body></html>",
+                "cookies": [], "truncated": False,
+            }
+        if url == "https://example.com/api/profile":
+            return {
+                "status": 200,
+                "headers": {"content-type": "application/json"},
+                "body": (
+                    b'{"email":"private@example.test",'
+                    b'"phoneNumber":"+254700000000"}'
+                ),
+                "cookies": [], "truncated": False,
+            }
+        return {
+            "status": 404, "headers": {}, "body": b"",
+            "cookies": [], "truncated": False,
+        }
+
+    monkeypatch.setattr(engine, "PinnedHTTPTransport", FakeTransport)
+    monkeypatch.setattr(engine.httpx, "Client", FakeClient)
+    monkeypatch.setattr(engine, "_read_limited_response", fake_read_response)
+    monkeypatch.setattr(engine.time, "sleep", lambda _seconds: None)
+
+    stats = engine.run_website_analysis(
+        db,
+        project.id,
+        "https://example.com/",
+        max_pages=30,
+        delay_seconds=0.5,
+    )
+
+    assert "https://example.com/api/profile" in requests
+    assert not any("must-not-be-replayed" in url for url in requests)
+    assert "https://example.com/api/profile/update" not in requests
+    assert stats["api_endpoints_assessed"] == 1
+    assert stats["anonymous_api_responses"] == 1
+    assert stats["anonymous_sensitive_field_indicators"] == 2
+    assert FakeClient.instance.cookies.clear_count == 2
+
+    finding = db.query(engine.Finding).filter(
+        engine.Finding.project_id == project.id,
+        engine.Finding.title
+        == "Potential unauthenticated API personal-data exposure",
+    ).one()
+    assert "private@example.test" not in finding.evidence
+    assert "+254700000000" not in finding.evidence
+    assert "email" in finding.evidence
+    assert "phoneNumber" in finding.evidence
