@@ -155,7 +155,7 @@ def _split_units(policy_text):
 
 def _section_state(unit, current):
     raw = unit.strip()
-    heading = re.sub(r"^#+\\s*", "", raw).strip().rstrip(":").strip()
+    heading = re.sub(r"^#+\s*", "", raw).strip().rstrip(":").strip()
     if SECTION_EXCLUDED.fullmatch(heading):
         return "excluded"
     if SECTION_INCLUDED.fullmatch(heading):
