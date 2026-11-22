@@ -3529,6 +3529,7 @@ def run_website_analysis(
                 )
                 db.commit()
 
+    credential_checks_remaining = False
     # Optional credentialed comparison uses only encrypted profiles
     # attached to this exact approved host. Tokens are passed per request,
     # never placed in job input, logs, URLs, or evidence.
@@ -3692,6 +3693,13 @@ def run_website_analysis(
         stats["credential_profiles_used"] = len(
             used_profile_ids - {None}
         )
+        maximum_credential_requests = min(
+            CREDENTIALLED_ENDPOINT_ASSESSMENT_LIMIT,
+            len(api_endpoint_candidates) * len(profiles),
+        )
+        credential_checks_remaining = (
+            credential_request_count < maximum_credential_requests
+        )
 
     endpoint_checks_remaining = bool(
         endpoint_reserve
@@ -3709,6 +3717,7 @@ def run_website_analysis(
             bool(queue)
             or probes_remaining
             or endpoint_checks_remaining
+            or credential_checks_remaining
         )
         and not stats["stopped"]
     )
