@@ -154,11 +154,24 @@ def _split_units(policy_text):
 
 
 def _section_state(unit, current):
-    heading = re.sub(r"^#+\s*", "", unit).strip().rstrip(":").strip()
+    raw = unit.strip()
+    heading = re.sub(r"^#+\\s*", "", raw).strip().rstrip(":").strip()
     if SECTION_EXCLUDED.fullmatch(heading):
         return "excluded"
     if SECTION_INCLUDED.fullmatch(heading):
         return "included_candidate"
+    # Do not let an old scope heading leak into unrelated policy sections.
+    if raw.startswith("#") or raw.endswith(":") or (
+        len(heading) <= 80 and heading.isupper() and len(heading) >= 3
+    ):
+        return ""
+    if re.fullmatch(
+        r"(?:program|programme|policy|rules|restrictions|eligibility|"
+        r"disclosure|safe harbor|testing guidelines)",
+        heading,
+        re.I,
+    ):
+        return ""
     return current
 
 
