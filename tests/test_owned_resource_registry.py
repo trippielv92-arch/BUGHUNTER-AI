@@ -142,3 +142,30 @@ def test_resource_fingerprint_is_stable_within_project_and_isolated_between_proj
     assert first == again
     assert first != other_project
 
+def test_attestation_note_and_endpoint_template_cannot_leak_resource_identifier(
+    db, monkeypatch
+):
+    project, profile = _setup(db, monkeypatch)
+    with pytest.raises(ValueError, match="raw resource identifier"):
+        register_researcher_owned_resource(
+            db, project.id, "example.com",
+            "https://example.com/api/orders/synthetic-order-123/{id}",
+            profile.id, "synthetic-order-123",
+            "Owner account accessed synthetic-order-123 in the test environment.",
+        )
+
+
+@pytest.mark.parametrize("note", [
+    "Owner account used token=very-secret-token-value for this test record.",
+    "Owner account used Authorization: Bearer abcdefghijklmnopqrstuvwxyz123456.",
+    "Owner account used Cookie: session=private-session-token for this record.",
+])
+def test_attestation_notes_reject_credential_material(db, monkeypatch, note):
+    project, profile = _setup(db, monkeypatch)
+    with pytest.raises(ValueError, match="credentials or secret values"):
+        register_researcher_owned_resource(
+            db, project.id, "example.com",
+            "https://example.com/api/orders/{id}", profile.id,
+            "synthetic-order-123", note,
+        )
+
