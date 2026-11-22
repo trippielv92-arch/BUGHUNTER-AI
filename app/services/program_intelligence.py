@@ -379,6 +379,20 @@ def derive_policy_execution_controls(policy_text):
         sentence[:1000] for sentence in sentences
         if automated_prohibition.search(sentence)
     ]
+    passive_prohibition = re.compile(
+        r"\b(?:no|without)\s+(?:the\s+use\s+of\s+)?(?:any\s+)?"
+        r"(?:automated|automatic)\s+tools?\b"
+        r"|\b(?:do not|must not|shall not|may not|never)\s+"
+        r"(?:use|run|perform|conduct|operate)\b.{0,100}\b"
+        r"(?:automated|automatic)\s+tools?\b"
+        r"|\b(?:automated|automatic)\s+tools?\b.{0,100}"
+        r"\b(?:prohibited|forbidden|not allowed|not permitted|disallowed)\b",
+        re.I,
+    )
+    passive_prohibition_evidence = [
+        sentence[:1000] for sentence in sentences
+        if passive_prohibition.search(sentence)
+    ]
 
     limits = []
     per_unit = re.compile(
@@ -415,6 +429,8 @@ def derive_policy_execution_controls(policy_text):
     return {
         "active_automated_testing_allowed": not bool(prohibited_sentences),
         "automated_testing_prohibition_evidence": prohibited_sentences,
+        "passive_discovery_allowed": not bool(passive_prohibition_evidence),
+        "passive_discovery_prohibition_evidence": passive_prohibition_evidence,
         "rate_limit_requests_per_second": strictest,
         "minimum_request_delay_seconds": round(minimum_delay, 3),
         "rate_limit_evidence": [item["source_text"] for item in limits[:20]],
