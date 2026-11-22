@@ -266,3 +266,28 @@ class TestCredentialProfile(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=now_utc, onupdate=now_utc
     )
+
+class ResearcherOwnedResource(Base):
+    """Encrypted mapping for a researcher-attested test resource."""
+
+    __tablename__ = "researcher_owned_resources"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(
+        ForeignKey("projects.id"), index=True
+    )
+    host: Mapped[str] = mapped_column(String(253), index=True)
+    endpoint_template: Mapped[str] = mapped_column(String(2048))
+    owner_profile_id: Mapped[int] = mapped_column(
+        ForeignKey("test_credential_profiles.id"), index=True
+    )
+    resource_fingerprint: Mapped[str] = mapped_column(
+        String(64), index=True
+    )
+    encrypted_reference: Mapped[str] = mapped_column(Text)
+    attestation_note: Mapped[str] = mapped_column(Text, default="")
+    ownership_attested: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc
+    )
+

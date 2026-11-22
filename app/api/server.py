@@ -18,7 +18,7 @@ from app.database.db import SessionLocal, init_db
 from app.models.entities import (
     User, Project, ScopeAsset, Finding, FindingReview, Activity,
     ScanCheck, Endpoint, TestCase, Evidence, AssessmentJob, ProgramAsset,
-    TestCredentialProfile,
+    TestCredentialProfile, ResearcherOwnedResource,
 )
 from app.services.auth import authenticate
 from app.services.projects import (
@@ -575,6 +575,27 @@ class TestCredentialProfileOut(BaseModel):
     role_label: str
     auth_type: str
     enabled: bool
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ResearcherOwnedResourceCreate(BaseModel):
+    host: str = Field(min_length=1, max_length=253)
+    endpoint_template: str = Field(min_length=1, max_length=2048)
+    owner_profile_id: int = Field(gt=0)
+    resource_reference: str = Field(min_length=1, max_length=512)
+    attestation_note: str = Field(min_length=20, max_length=2000)
+
+
+class ResearcherOwnedResourceOut(BaseModel):
+    id: int
+    host: str
+    endpoint_template: str
+    owner_profile_id: int
+    resource_fingerprint: str
+    attestation_note: str
+    ownership_attested: bool
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -1199,3 +1220,75 @@ def delete_test_credential_profile_api(
         delete_test_credential_profile(db, project_id, profile_id)
     except ValueError as exc:
         _service_error(db, exc)
+
+
+@app.get(
+    "/api/v1/projects/{project_id}/owned-resources",
+    response_model=list[ResearcherOwnedResourceOut],
+)
+def list_researcher_owned_resources_api(
+    project_id: int,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    _require_owned_project(db, project_id)
+    return db.scalars(
+        select(ResearcherOwnedResource)
+        .where(ResearcherOwnedResource.project_id == project_id)
+        .order_by(ResearcherOwnedResource.id.asc())
+    ).all()
+
+
+@app.post(
+    "/api/v1/projects/{project_id}/owned-resources",
+    response_model=ResearcherOwnedResourceOut,
+    status_code=201,
+)
+def create_researcher_owned_resource_api(
+    project_id: int,
+    data: ResearcherOwnedResourceCreate,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    _require_owned_project(db, project_id)
+    from app.services.owned_resource_registry import (
+        register_researcher_owned_resource,
+    )
+    try:
+        return register_researcher_owned_resource(
+            db=db,
+            project_id=project_id,
+            host=data.host,
+            endpoint_template=data.endpoint_template,
+            owner_profile_id=data.owner_profile_id,
+            resource_reference=data.resource_reference,
+            attestation_note=data.attestation_note,
+        )
+    except ValueError as exc:
+        _service_error(db, exc)
+    except RuntimeError as exc:
+        db.rollback()
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.delete(
+    "/api/v1/projects/{project_id}/owned-resources/{resource_id}",
+    status_code=204,
+)
+def delete_researcher_owned_resource_api(
+    project_id: int,
+    resource_id: int,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    _require_owned_project(db, project_id)
+    resource = db.scalar(
+        select(ResearcherOwnedResource).where(
+            ResearcherOwnedResource.id == resource_id,
+            ResearcherOwnedResource.project_id == project_id,
+        )
+    )
+    if resource is None:
+        raise HTTPException(status_code=404, detail="Owned resource not found.")
+    db.delete(resource)
+    db.commit()
