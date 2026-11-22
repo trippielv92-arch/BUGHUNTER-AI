@@ -242,3 +242,24 @@ def test_policy_statement_that_does_not_prohibit_scanning_is_not_misread():
         "The programme does not prohibit automated scanning."
     )
     assert controls["active_automated_testing_allowed"] is True
+
+
+def test_email_addresses_and_provider_subdomains_are_not_target_assets():
+    result = analyze_program_policy(
+        "https://hackerone.com/acme",
+        "In scope contact@acme.test and support.hackerone.com. "
+        "The actual target is app.acme.test.",
+    )
+    candidates = {
+        item["asset"]
+        for group in (
+            result["scope"]["included_candidates"],
+            result["scope"]["excluded_candidates"],
+            result["scope"]["ambiguous_candidates"],
+        )
+        for item in group
+    }
+    assert "contact@acme.test" not in candidates
+    assert "acme.test" not in candidates
+    assert "support.hackerone.com" not in candidates
+    assert "app.acme.test" in candidates
