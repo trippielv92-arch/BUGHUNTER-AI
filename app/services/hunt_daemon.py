@@ -38,12 +38,24 @@ class JobStopSignal:
             return True
         # Use a fresh connection so a long-lived ORM transaction cannot
         # retain a stale SQLite read snapshot after the UI commits a stop.
-        with engine.connect() as connection:
-            status = connection.execute(
-                text("SELECT status FROM assessment_jobs WHERE id=:id"),
+        with self.db.get_bind().connect() as connection:
+            row = connection.execute(
+                text(
+                    "SELECT j.status AS job_status, "
+                    "p.scope_approved AS scope_approved, "
+                    "p.status AS project_status "
+                    "FROM assessment_jobs j "
+                    "JOIN projects p ON p.id=j.project_id "
+                    "WHERE j.id=:id"
+                ),
                 {"id": self.job_id},
-            ).scalar_one_or_none()
-        return status != "running"
+            ).first()
+        return (
+            row is None
+            or row.job_status != "running"
+            or not bool(row.scope_approved)
+            or row.project_status == "deleted"
+        )
 
     def wait(self, seconds):
         import time
