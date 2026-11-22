@@ -6,13 +6,42 @@ raw object identifiers or response values. A policy mismatch is a manual
 review lead, not a confirmed vulnerability.
 """
 import hashlib
+import re
 from collections import defaultdict
+from urllib.parse import urlsplit, urlunsplit
 
 _VALID_ACCESS = {"allowed", "denied", "unknown"}
 
 
 def _clean_label(value, limit=80):
     return str(value or "").strip()[:limit]
+
+
+def _safe_endpoint(value, resource_reference):
+    raw = str(value or "").strip()
+    try:
+        parsed = urlsplit(raw)
+        if not parsed.scheme or not parsed.netloc:
+            return ""
+        reference = str(resource_reference or "").strip()
+        path = parsed.path
+        if reference:
+            path = path.replace(reference, "{resource}")
+        segments = []
+        for segment in path.split("/"):
+            if (
+                segment.isdigit()
+                or re.fullmatch(r"[0-9a-fA-F]{8}-[0-9a-fA-F-]{27,}", segment)
+                or re.fullmatch(r"[0-9a-fA-F]{24,}", segment)
+            ):
+                segment = "{id}"
+            segments.append(segment)
+        return urlunsplit((
+            parsed.scheme.lower(), parsed.netloc.lower(),
+            "/".join(segments), "", ""
+        ))
+    except (TypeError, ValueError):
+        return ""
 
 
 def _resource_fingerprint(value):
@@ -40,10 +69,11 @@ def analyze_object_ownership_observations(observations):
         if item.get("ownership_verified") is not True:
             continue
 
-        endpoint = str(item.get("endpoint") or "").strip()
+        resource_reference = item.get("resource_reference")
+        endpoint = _safe_endpoint(item.get("endpoint"), resource_reference)
         owner = _clean_label(item.get("resource_owner_role"))
         requester = _clean_label(item.get("requester_role"))
-        fingerprint = _resource_fingerprint(item.get("resource_reference"))
+        fingerprint = _resource_fingerprint(resource_reference)
         expected = item.get("expected_access")
         observed = str(item.get("observed_access") or "").strip().lower()
 
