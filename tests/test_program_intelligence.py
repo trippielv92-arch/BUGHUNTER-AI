@@ -235,3 +235,10 @@ def test_identical_policy_snapshot_does_not_create_new_version(db):
     assert first["version_number"] == 1
     assert second["version_number"] == 1
     assert second["reused_existing_snapshot"] is True
+
+
+def test_policy_statement_that_does_not_prohibit_scanning_is_not_misread():
+    controls = derive_policy_execution_controls(
+        "The programme does not prohibit automated scanning."
+    )
+    assert controls["active_automated_testing_allowed"] is True
