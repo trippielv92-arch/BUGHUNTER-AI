@@ -174,5 +174,5 @@ def test_empty_sensitive_config_fields_do_not_trigger_exposure_finding():
 
 def test_environment_file_marker_requires_nonempty_value():
     assert engine._exposure_probe_indicator(
-        "/.env", 200, b"APP_KEY=\\nDATABASE_URL=\\n"
+        "/.env", 200, b"APP_KEY=\nDATABASE_URL=\n"
     ) is None
