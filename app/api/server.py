@@ -563,7 +563,9 @@ class TestCredentialProfileCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     role_label: str = Field(min_length=1, max_length=80)
     auth_type: str = Field(min_length=1, max_length=20)
-    secret: str = Field(min_length=1, max_length=8192)
+    # Length and newline validation happen in the vault service so validation
+    # errors never echo the submitted credential value back to the client.
+    secret: str
 
 
 class TestCredentialProfileOut(BaseModel):
