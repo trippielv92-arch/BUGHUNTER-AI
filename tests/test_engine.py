@@ -75,19 +75,19 @@ def test_failed_page_requests_consume_limit_and_keep_rate_spacing(db, monkeypatc
         ),
     )
 
-    # robots.txt is accounted for separately from page GETs.
+    # robots.txt consumes one slot in the shared bounded request budget.
     assert calls[0] == "https://example.com/robots.txt"
     assert stats["robots_requests"] == 1
 
-    # One success and two failures still consume exactly three page requests.
-    assert stats["requests_attempted"] == 3
+    # The remaining two slots allow one successful page and one failure.
+    assert stats["requests_attempted"] == 2
     assert stats["pages_checked"] == 1
-    assert stats["requests_failed"] == 2
+    assert stats["requests_failed"] == 1
     assert stats["request_limit_reached"] is True
 
     # Failed requests do not bypass the inter-request delay.
     assert sleeps == [0.5, 0.5]
 
-    # Progress reflects attempted requests, not only successful page checks.
-    assert [percent for percent, _ in progress] == [33, 66, 100]
-    assert "3/3 page requests" in progress[-1][1]
+    # Progress reflects all bounded requests, including robots.txt.
+    assert [percent for percent, _ in progress] == [66, 100]
+    assert "3/3 total requests" in progress[-1][1]
