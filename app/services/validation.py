@@ -70,6 +70,14 @@ FAMILY_RULES = {
         "checks": ("Query parameter reflection review",),
         "markers": ("unescaped_reflected_parameter_names",),
     },
+    "open_redirect": {
+        "finding_terms": (
+            "open redirect", "redirect to an external origin",
+            "redirect destination",
+        ),
+        "checks": ("Redirect destination review",),
+        "markers": ("redirect_parameter_names",),
+    },
     "sensitive": {
         "finding_terms": (
             "sensitive", "secret", "credential", "token", "api key",
