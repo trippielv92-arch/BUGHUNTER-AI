@@ -844,6 +844,11 @@ class Window(QMainWindow):
     self, "Project created",
     f"Remote project #{project['id']} was created successfully."
    )
+   if programme_url:
+    self.remote_policy_status.setText(
+     "Project created. Automatically retrieving and analyzing its programme policy..."
+    )
+    self.analyze_remote_program()
   except APIError as exc:
    QMessageBox.warning(self, "Create project", str(exc))
 
