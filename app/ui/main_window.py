@@ -298,6 +298,11 @@ class Window(QMainWindow):
   add_scope_button.setStyleSheet("background:#475569")
   add_scope_button.clicked.connect(self.add_remote_candidate_to_scope)
   review_actions.addWidget(add_scope_button)
+
+  approve_scope_button = QPushButton("APPROVE REMOTE SCOPE")
+  approve_scope_button.setStyleSheet("background:#15803d")
+  approve_scope_button.clicked.connect(self.approve_remote_scope)
+  review_actions.addWidget(approve_scope_button)
   policy_layout.addLayout(review_actions)
 
   layout.addWidget(policy_box)
@@ -315,6 +320,70 @@ class Window(QMainWindow):
   self.statusBar().showMessage("Connected to central BugHunter AI API.")
   self.refresh_remote_projects()
 
+ def approve_remote_scope(self):
+  project_id = self.remote_project_id
+  if not self.api_client or not project_id or not self.remote_project:
+   QMessageBox.warning(self, "Approve scope", "Select a remote project first.")
+   return
+
+  policy_text = self.remote_policy_text.toPlainText().strip()
+  if not policy_text:
+   QMessageBox.warning(
+    self, "Approve scope",
+    "Analyze the programme URL or paste its official policy text first."
+   )
+   return
+
+  try:
+   assets = self.api_client.list_project_resource(project_id, "assets")
+   included = [
+    asset.get("host", "") for asset in assets
+    if asset.get("included") and asset.get("host")
+   ]
+   excluded = [
+    asset.get("host", "") for asset in assets
+    if not asset.get("included") and asset.get("host")
+   ]
+   if not included:
+    QMessageBox.warning(
+     self, "Approve scope",
+     "There are no included assets. Review policy candidates and add "
+     "explicitly authorized assets to proposed scope first."
+    )
+    return
+
+   details = "Included assets to approve:\n" + "\n".join(included)
+   if excluded:
+    details += "\n\nExcluded assets (will remain unapproved):\n" + "\n".join(excluded)
+   answer = QMessageBox.question(
+    self,
+    "Confirm exact remote scope",
+    details + "\n\nApprove only this exact included asset list?",
+    QMessageBox.Yes | QMessageBox.No,
+    QMessageBox.No,
+   )
+   if answer != QMessageBox.Yes:
+    return
+
+   self.api_client.approve_scope(project_id, policy_text)
+   self.remote_project = self.api_client.get_project(project_id)
+   self.remote_start_hunt_button.setEnabled(True)
+   self.remote_project_details.setPlainText(
+    f"Project: {self.remote_project.get('name')}\n"
+    "Scope approved on the cloud server.\n"
+    f"Approved included assets: {len(included)}\n"
+    f"Excluded assets: {len(excluded)}\n\n"
+    "Use START CLOUD HUNT to queue discovery for each approved asset."
+   )
+   self.remote_policy_status.setText(
+    f"Remote scope approved: {len(included)} included asset(s). "
+    "Excluded assets remain unapproved."
+   )
+  except APIError as exc:
+   QMessageBox.warning(self, "Approve scope", str(exc))
+  except Exception as exc:
+   QMessageBox.warning(self, "Approve scope", f"Could not approve scope: {exc}")
+
  def start_remote_hunt(self):
   project = self.remote_project
   project_id = self.remote_project_id
@@ -330,6 +399,7 @@ class Window(QMainWindow):
    )
    return
 
+  queued = []
   try:
    assets = self.api_client.list_project_resource(project_id, "assets")
    approved = [
@@ -343,7 +413,6 @@ class Window(QMainWindow):
     )
     return
 
-   queued = []
    for asset in approved:
     host = asset["host"]
     job = self.api_client.start_hunt(
@@ -423,6 +492,9 @@ class Window(QMainWindow):
     "Policy analysis saved. Candidate assets require independent review; "
     "none have been approved."
    )
+   extracted_text = (result.get("analysis") or {}).get("policy_text", "")
+   if extracted_text:
+    self.remote_policy_text.setPlainText(extracted_text)
    self.refresh_remote_policy_assets()
 
    self.remote_project_details.setPlainText(
