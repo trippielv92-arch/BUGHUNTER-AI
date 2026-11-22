@@ -184,3 +184,50 @@ def test_public_html_extraction_preserves_scope_section_boundaries(monkeypatch):
     assert "legacy.acme.test" in {
         item["asset"] for item in result["scope"]["excluded_candidates"]
     }
+
+
+def test_changed_policy_snapshot_revokes_existing_scope_approval(db):
+    from app.models.entities import ScopeAsset
+    from app.services.program_policy_store import analyze_and_store_program
+    from app.services.projects import add_scope_asset, create_project
+
+    project = create_project(
+        db, "Policy change approval reset", "https://program.example.org/acme"
+    )
+    scope_asset = add_scope_asset(db, project.id, "old.example.org")
+    project.policy_text = "Old approved policy text."
+    project.scope_approved = True
+    scope_asset.approved = True
+    db.commit()
+
+    result = analyze_and_store_program(
+        db,
+        project.id,
+        manual_policy=(
+            "In Scope:\napp.example.org\n"
+            "Out of Scope:\nold.example.org"
+        ),
+    )
+    db.refresh(project)
+    db.refresh(scope_asset)
+
+    assert result["version_number"] == 1
+    assert project.scope_approved is False
+    assert project.status == "draft"
+    assert scope_asset.approved is False
+
+
+def test_identical_policy_snapshot_does_not_create_new_version(db):
+    from app.services.program_policy_store import analyze_and_store_program
+    from app.services.projects import create_project
+
+    project = create_project(
+        db, "Unchanged policy", "https://program.example.org/acme"
+    )
+    text = "In scope app.example.org"
+    first = analyze_and_store_program(db, project.id, manual_policy=text)
+    second = analyze_and_store_program(db, project.id, manual_policy=text)
+
+    assert first["version_number"] == 1
+    assert second["version_number"] == 1
+    assert second["reused_existing_snapshot"] is True
