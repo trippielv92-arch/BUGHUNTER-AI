@@ -369,6 +369,7 @@ class Window(QMainWindow):
    "Register only records created for your own test accounts. The resource "
    "identifier is encrypted on the server and never displayed again. This is "
    "a researcher ownership attestation, not an automatic ownership proof. "
+   "Do not include the raw resource ID or credentials in the note. "
    "Registration does not send any request to the resource."
   ))
   owned_form = QFormLayout()
