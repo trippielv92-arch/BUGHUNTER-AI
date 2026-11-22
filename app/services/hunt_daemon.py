@@ -121,6 +121,12 @@ def claim_next_job():
 
 def persist_progress(db, job_id, percent, message):
     try:
+        status = db.execute(
+            text("SELECT status FROM assessment_jobs WHERE id=:id"),
+            {"id": job_id},
+        ).scalar_one_or_none()
+        if status != "running":
+            return
         update_job_progress(
             db, job_id, max(0, min(99, int(percent))),
             checkpoint=str(message)[:20000],
