@@ -2868,10 +2868,12 @@ def run_website_analysis(
     )
     credential_reserve = (
         CREDENTIALLED_ENDPOINT_ASSESSMENT_LIMIT
+        + OWNED_RESOURCE_VERIFICATION_LIMIT
         if auth_profiles and max_pages >= (
             len(EXPOSURE_PROBE_PATHS)
             + ENDPOINT_ASSESSMENT_LIMIT
             + CREDENTIALLED_ENDPOINT_ASSESSMENT_LIMIT
+            + OWNED_RESOURCE_VERIFICATION_LIMIT
             + 2
         )
         else 0
