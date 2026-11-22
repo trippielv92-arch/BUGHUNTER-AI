@@ -362,6 +362,55 @@ class Window(QMainWindow):
   credential_layout.addWidget(self.remote_credential_profiles)
   layout.addWidget(credential_box)
 
+  # RESEARCHER_OWNED_RESOURCE_REGISTRY
+  owned_box = QGroupBox("RESEARCHER-OWNED API RESOURCE REGISTRY")
+  owned_layout = QVBoxLayout(owned_box)
+  owned_layout.addWidget(QLabel(
+   "Register only records created for your own test accounts. The resource "
+   "identifier is encrypted on the server and never displayed again. This is "
+   "a researcher ownership attestation, not an automatic ownership proof. "
+   "Registration does not send any request to the resource."
+  ))
+  owned_form = QFormLayout()
+  self.remote_owned_host = QComboBox()
+  self.remote_owned_owner_profile = QComboBox()
+  self.remote_owned_endpoint = QLineEdit()
+  self.remote_owned_endpoint.setPlaceholderText(
+   "https://approved.example/api/orders/{id}"
+  )
+  self.remote_owned_reference = QLineEdit()
+  self.remote_owned_reference.setEchoMode(QLineEdit.Password)
+  self.remote_owned_reference.setPlaceholderText(
+   "Exact synthetic/test record identifier"
+  )
+  self.remote_owned_attestation = QLineEdit()
+  self.remote_owned_attestation.setPlaceholderText(
+   "Explain how the owner test account accessed this record"
+  )
+  owned_form.addRow("Approved host", self.remote_owned_host)
+  owned_form.addRow("Owner test account", self.remote_owned_owner_profile)
+  owned_form.addRow("HTTPS endpoint template", self.remote_owned_endpoint)
+  owned_form.addRow("Resource identifier (write-only)", self.remote_owned_reference)
+  owned_form.addRow("Ownership attestation", self.remote_owned_attestation)
+  owned_layout.addLayout(owned_form)
+  owned_actions = QHBoxLayout()
+  save_owned_button = QPushButton("REGISTER OWNED TEST RESOURCE")
+  save_owned_button.clicked.connect(self.add_remote_owned_resource)
+  owned_actions.addWidget(save_owned_button)
+  refresh_owned_button = QPushButton("REFRESH RESOURCES")
+  refresh_owned_button.setStyleSheet("background:#475569")
+  refresh_owned_button.clicked.connect(self.refresh_remote_owned_resources)
+  owned_actions.addWidget(refresh_owned_button)
+  delete_owned_button = QPushButton("DELETE SELECTED")
+  delete_owned_button.setStyleSheet("background:#7f1d1d")
+  delete_owned_button.clicked.connect(self.delete_remote_owned_resource)
+  owned_actions.addWidget(delete_owned_button)
+  owned_layout.addLayout(owned_actions)
+  self.remote_owned_resources = QListWidget()
+  self.remote_owned_resources.setMaximumHeight(125)
+  owned_layout.addWidget(self.remote_owned_resources)
+  layout.addWidget(owned_box)
+
   notice = QLabel(
    "Cloud hunts run on explicitly approved assets. The worker performs passive discovery, "
    "bounded HTTPS GET inventory, anonymous API access checks and optional encrypted "
@@ -969,6 +1018,19 @@ class Window(QMainWindow):
     item = QListWidgetItem(label)
     item.setData(Qt.UserRole, profile.get("id"))
     self.remote_credential_profiles.addItem(item)
+   self.remote_owned_host.clear()
+   self.remote_owned_owner_profile.clear()
+   for asset in assets:
+    if asset.get("included") and asset.get("approved") and asset.get("host"):
+     self.remote_owned_host.addItem(str(asset["host"]), str(asset["host"]))
+   for profile in profiles:
+    if profile.get("enabled"):
+     label = (
+      f"#{profile.get('id')} — {profile.get('host')} | "
+      f"{profile.get('name')} [{profile.get('role_label')}]"
+     )
+     self.remote_owned_owner_profile.addItem(label, profile.get("id"))
+   self.refresh_remote_owned_resources()
   except APIError as exc:
    self.remote_credential_profiles.clear()
    self.remote_credential_profiles.addItem(
@@ -1005,6 +1067,87 @@ class Window(QMainWindow):
    )
   except APIError as exc:
    QMessageBox.warning(self, "Test account", str(exc))
+
+ def refresh_remote_owned_resources(self):
+  if not self.api_client or not self.remote_project_id:
+   return
+  try:
+   resources = self.api_client.list_researcher_owned_resources(
+    self.remote_project_id
+   )
+   self.remote_owned_resources.clear()
+   for resource in resources:
+    label = (
+     f"#{resource.get('id')} | {resource.get('host')} | "
+     f"{resource.get('endpoint_template')} | "
+     f"owner profile #{resource.get('owner_profile_id')} | "
+     f"fingerprint {str(resource.get('resource_fingerprint', ''))[:12]}…"
+    )
+    item = QListWidgetItem(label)
+    item.setData(Qt.UserRole, resource.get("id"))
+    self.remote_owned_resources.addItem(item)
+  except APIError as exc:
+   self.remote_owned_resources.clear()
+   self.remote_owned_resources.addItem(
+    f"Owned-resource registry unavailable: {exc}"
+   )
+
+ def add_remote_owned_resource(self):
+  if not self.api_client or not self.remote_project_id:
+   QMessageBox.warning(self, "Owned resource", "Select a remote project first.")
+   return
+  host = self.remote_owned_host.currentData()
+  profile_id = self.remote_owned_owner_profile.currentData()
+  endpoint = self.remote_owned_endpoint.text().strip()
+  reference = self.remote_owned_reference.text()
+  note = self.remote_owned_attestation.text().strip()
+  if not host or not profile_id or not endpoint or not reference or len(note) < 20:
+   QMessageBox.warning(
+    self, "Owned resource",
+    "Select an approved host and owner profile, enter the HTTPS endpoint "
+    "template and resource identifier, and provide an ownership explanation "
+    "of at least 20 characters."
+   )
+   return
+  try:
+   resource = self.api_client.add_researcher_owned_resource(
+    self.remote_project_id, host, endpoint, profile_id, reference, note
+   )
+   self.remote_owned_reference.clear()
+   self.remote_owned_attestation.clear()
+   self.refresh_remote_owned_resources()
+   QMessageBox.information(
+    self, "Owned resource",
+    f"Resource #{resource.get('id')} registered. Its identifier is encrypted "
+    "and hidden. No network request was made."
+   )
+  except APIError as exc:
+   QMessageBox.warning(self, "Owned resource", str(exc))
+
+ def delete_remote_owned_resource(self):
+  if not self.api_client or not self.remote_project_id:
+   return
+  item = self.remote_owned_resources.currentItem()
+  resource_id = item.data(Qt.UserRole) if item else None
+  if not resource_id:
+   QMessageBox.warning(self, "Owned resource", "Select a registered resource.")
+   return
+  answer = QMessageBox.question(
+   self, "Delete owned resource",
+   "Delete this encrypted researcher-owned resource mapping?",
+   QMessageBox.Yes | QMessageBox.No,
+   QMessageBox.No,
+  )
+  if answer != QMessageBox.Yes:
+   return
+  try:
+   self.api_client.delete_researcher_owned_resource(
+    self.remote_project_id, resource_id
+   )
+   self.refresh_remote_owned_resources()
+  except APIError as exc:
+   QMessageBox.warning(self, "Owned resource", str(exc))
+
 
  def delete_remote_test_credential(self):
   if not self.api_client or not self.remote_project_id:
