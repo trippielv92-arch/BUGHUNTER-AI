@@ -10,8 +10,6 @@ __pycache__
 .env
 .env.*
 !.env.example
-data/*
-!data/.gitkeep
 evidence
 reports
 *.log
