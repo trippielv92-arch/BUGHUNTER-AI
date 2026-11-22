@@ -638,6 +638,7 @@ def _verify_registered_owned_resources(
     from app.services.object_authorization_verifier import (
         build_registered_resource_url,
         compare_owned_resource_access,
+        response_is_usable_resource_representation,
         select_distinct_requester_profiles,
     )
 
@@ -797,9 +798,36 @@ def _verify_registered_owned_resources(
             processed += 1
             continue
 
-        stats["owned_resource_owner_checks_passed"] += 1
         owner_body = owner_response["body"]
         owner_truncated = owner_response.get("truncated", False)
+        owner_content_type = owner_response.get("headers", {}).get(
+            "content-type", ""
+        )
+        if not response_is_usable_resource_representation(
+            owner_body, owner_content_type, owner_truncated
+        ):
+            _save_check(
+                db, project_id, resource.endpoint_template,
+                "Researcher-owned resource owner-access verification",
+                "owner_response_not_resource_evidence",
+                json.dumps({
+                    "resource_id": resource.id,
+                    "resource_fingerprint": resource.resource_fingerprint,
+                    "owner_profile_id": owner["id"],
+                    "owner_status": owner_status,
+                    "owner_response_bytes": len(owner_body or b""),
+                    "owner_content_type": str(owner_content_type).split(";", 1)[0][:100],
+                    "requester_tests_sent": 0,
+                    "response_values_recorded": False,
+                    "vulnerability_confirmed": False,
+                    "reason": "Owner response was empty, truncated, or resembled a soft-denial response.",
+                }),
+            )
+            db.commit()
+            processed += 1
+            continue
+
+        stats["owned_resource_owner_checks_passed"] += 1
 
         for requester in requesters:
             if request_count >= OWNED_RESOURCE_VERIFICATION_LIMIT or stats["stopped"]:
@@ -825,6 +853,10 @@ def _verify_registered_owned_resources(
                 requester_response["body"],
                 owner_truncated=owner_truncated,
                 requester_truncated=requester_response.get("truncated", False),
+                owner_content_type=owner_content_type,
+                requester_content_type=requester_response.get("headers", {}).get(
+                    "content-type", ""
+                ),
             )
             comparison.update({
                 "resource_id": resource.id,

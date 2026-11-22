@@ -244,3 +244,38 @@ def test_full_hunt_reserves_budget_for_registered_resource_verification(
     assert "synthetic-order-123" not in finding.evidence
     assert resource.endpoint_template == finding.asset
 
+
+
+def test_engine_does_not_test_other_accounts_when_owner_get_is_soft_denied(
+    db, monkeypatch
+):
+    project, _resource, profiles = _resource_fixture(db, monkeypatch)
+    requests = []
+
+    def fake_read(client, url, request_headers=None):
+        requests.append(dict(request_headers or {}))
+        return {
+            "status": 200,
+            "body": b'{"error":"record not found"}',
+            "headers": {"content-type": "application/json"},
+            "truncated": False,
+        }
+
+    monkeypatch.setattr(engine, "_read_limited_response", fake_read)
+    monkeypatch.setattr(engine.time, "sleep", lambda _seconds: None)
+    stats = _stats()
+    engine._verify_registered_owned_resources(
+        db, project.id, "https://example.com", profiles, None, False,
+        _Client(), None, 0.5, 100, stats,
+    )
+
+    assert requests == [{"Authorization": "Bearer owner-test-token"}]
+    assert stats["owned_resource_owner_checks_passed"] == 0
+    assert stats["cross_account_access_leads"] == 0
+    check = db.scalar(select(ScanCheck).where(
+        ScanCheck.project_id == project.id,
+        ScanCheck.check_name == "Researcher-owned resource owner-access verification",
+        ScanCheck.outcome == "owner_response_not_resource_evidence",
+    ))
+    assert check is not None
+    assert "record not found" not in check.details
