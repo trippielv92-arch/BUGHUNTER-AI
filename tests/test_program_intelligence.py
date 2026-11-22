@@ -1,6 +1,6 @@
 import pytest
 
-from app.services.program_intelligence import (
+from app.services.analyzer import analyze_programme\nfrom app.services.program_intelligence import (
     analyze_program_policy,
     derive_policy_execution_controls,
     identify_provider,
@@ -149,3 +149,38 @@ def test_no_explicit_restriction_keeps_conservative_default():
     )
     assert controls["active_automated_testing_allowed"] is True
     assert controls["minimum_request_delay_seconds"] == pytest.approx(0.75)
+
+
+def test_scope_heading_does_not_leak_into_later_policy_sections():
+    result = analyze_program_policy(
+        "https://program.example.org",
+        "In Scope:\\napp.example.org\\nProgram Rules:\\n"
+        "status.example.org is mentioned as an example",
+    )
+    included = {item["asset"] for item in result["scope"]["included_candidates"]}
+    ambiguous = {item["asset"] for item in result["scope"]["ambiguous_candidates"]}
+    assert "app.example.org" in included
+    assert "status.example.org" in ambiguous
+
+
+def test_public_html_extraction_preserves_scope_section_boundaries(monkeypatch):
+    from app.services import analyzer
+
+    monkeypatch.setattr(
+        analyzer,
+        "_retrieve_public_page",
+        lambda url: (
+            "<html><title>Acme Security</title><body>"
+            "<h2>In Scope</h2><table><tr><td>portal.acme.test</td></tr></table>"
+            "<h2>Out of Scope</h2><ul><li>legacy.acme.test</li></ul>"
+            "</body></html>"
+        ),
+    )
+    result = analyze_programme("https://security.example.org/acme")
+    assert result["source"] == "public webpage"
+    assert "portal.acme.test" in {
+        item["asset"] for item in result["scope"]["included_candidates"]
+    }
+    assert "legacy.acme.test" in {
+        item["asset"] for item in result["scope"]["excluded_candidates"]
+    }
