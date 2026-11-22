@@ -2785,6 +2785,7 @@ def run_website_analysis(
         "object_reference_candidates": 0,
         "object_references_seen_across_roles": 0,
         "object_reference_summaries": 0,
+        "registered_resource_matches": 0,
         "owned_resource_checks_attempted": 0,
         "owned_resource_owner_checks_passed": 0,
         "cross_account_access_leads": 0,
@@ -4054,6 +4055,10 @@ def run_website_analysis(
                 }
                 for resource in registered_resources
             ],
+        )
+        stats["registered_resource_matches"] = sum(
+            int(item["registered_resource_match"])
+            for item in reference_summaries
         )
         stats["object_reference_summaries"] = len(reference_summaries)
         stats["object_references_seen_across_roles"] = sum(
