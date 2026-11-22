@@ -159,6 +159,19 @@ def delete_test_credential_profile(db, project_id, profile_id):
     )
     if profile is None:
         raise ValueError("Test credential profile not found.")
+
+    from app.models.entities import ResearcherOwnedResource
+    linked_resource = db.scalar(
+        select(ResearcherOwnedResource.id).where(
+            ResearcherOwnedResource.project_id == project_id,
+            ResearcherOwnedResource.owner_profile_id == profile_id,
+        ).limit(1)
+    )
+    if linked_resource is not None:
+        raise ValueError(
+            "Delete this profile's researcher-owned resource mappings first."
+        )
+
     db.delete(profile)
     db.commit()
     return True
