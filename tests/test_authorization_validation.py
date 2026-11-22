@@ -97,3 +97,49 @@ def test_unattested_or_confirmed_claims_do_not_support_a_finding(db):
     )
     counts = validate_project_findings(db, project.id)
     assert counts["needs_manual_review"] == 1
+
+def test_role_permission_difference_is_supported_but_never_confirmed(db):
+    project = create_project(db, "Role comparison validation", "https://example.com")
+    project.policy_text = "Authorized test policy for example.com."
+    add_scope_asset(db, project.id, "example.com")
+    approve_scope(db, project)
+    finding = Finding(
+        project_id=project.id,
+        title="Potential role-based API authorization difference",
+        category="API Authorization",
+        severity="medium",
+        confidence="low",
+        status="potential",
+        asset="https://example.com/api/profile",
+        description="Role response difference.",
+        evidence="Owner and viewer roles differ.",
+        remediation="Review role policy.",
+    )
+    db.add(finding)
+    db.add(ScanCheck(
+        project_id=project.id,
+        asset="https://example.com/api/profile",
+        check_name="Role-based authorization evidence summary",
+        outcome="difference_observed",
+        details=json.dumps({
+            "behavioral_difference_observed": True,
+            "automatically_confirmed": False,
+            "response_values_recorded": False,
+            "roles_compared": ["owner", "viewer"],
+        }),
+    ))
+    db.commit()
+
+    counts = validate_project_findings(db, project.id)
+    assert counts["supported_by_observation"] == 1
+
+    record = db.scalar(select(ScanCheck).where(
+        ScanCheck.project_id == project.id,
+        ScanCheck.check_name == "Automated finding validation",
+    ))
+    details = json.loads(record.details)
+    assert "role_behavioral_difference_observed" in details["indicator_names"]
+    assert details["manual_review_required"] is True
+    assert details["auto_confirmed"] is False
+    assert finding.status == "potential"
+
