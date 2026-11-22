@@ -294,6 +294,11 @@ class Window(QMainWindow):
    )
    review_actions.addWidget(action)
 
+  propose_scope_button = QPushButton("AUTO-PROPOSE CLEAR IN-SCOPE HOSTS")
+  propose_scope_button.setStyleSheet("background:#1d4ed8")
+  propose_scope_button.clicked.connect(self.propose_clear_remote_hostnames)
+  review_actions.addWidget(propose_scope_button)
+
   add_scope_button = QPushButton("ADD ACCEPTED TO PROPOSED SCOPE")
   add_scope_button.setStyleSheet("background:#475569")
   add_scope_button.clicked.connect(self.add_remote_candidate_to_scope)
@@ -626,6 +631,61 @@ class Window(QMainWindow):
   except Exception as exc:
    QMessageBox.warning(
     self, "Candidate review", f"Could not refresh candidates: {exc}"
+   )
+
+ def propose_clear_remote_hostnames(self):
+  if not self.api_client or not self.remote_project_id:
+   QMessageBox.warning(
+    self, "Proposed scope", "Select a remote project first."
+   )
+   return
+
+  answer = QMessageBox.question(
+   self,
+   "Propose clear in-scope hostnames",
+   "Automatically add only exact hostnames that the latest policy "
+   "extractor classified as explicitly included with medium confidence?\n\n"
+   "Excluded assets, wildcard entries, IP ranges, IP literals, URLs and "
+   "ambiguous candidates will be skipped. Nothing is authorized until "
+   "you review and approve the complete proposed scope.",
+   QMessageBox.Yes | QMessageBox.No,
+   QMessageBox.No,
+  )
+  if answer != QMessageBox.Yes:
+   return
+
+  try:
+   result = self.api_client.propose_clear_program_hostnames(
+    self.remote_project_id
+   )
+   self.refresh_remote_policy_assets()
+   self.remote_project = self.api_client.get_project(self.remote_project_id)
+   self.remote_start_hunt_button.setEnabled(
+    bool(self.remote_project.get("scope_approved"))
+   )
+   proposed = result.get("proposed", [])
+   summary = "\\n".join(
+    item.get("host", "") for item in proposed
+   ) or "No new exact hostnames qualified."
+   self.remote_policy_status.setText(
+    f"Proposed {result.get('proposed_count', 0)} clear hostname(s). "
+    "Scope is not approved."
+   )
+   QMessageBox.information(
+    self,
+    "Proposed scope updated",
+    f"Policy version: {result.get('policy_version')}\\n"
+    f"New exact hostnames: {result.get('proposed_count', 0)}\\n"
+    f"Already present: {result.get('skipped_existing_count', 0)}\\n\\n"
+    f"{summary}\\n\\n"
+    "Review the proposed scope, then use APPROVE REMOTE SCOPE. "
+    "No target testing has started.",
+   )
+  except APIError as exc:
+   QMessageBox.warning(self, "Proposed scope", str(exc))
+  except Exception as exc:
+   QMessageBox.warning(
+    self, "Proposed scope", f"Could not propose hostnames: {exc}"
    )
 
  def add_remote_candidate_to_scope(self):
