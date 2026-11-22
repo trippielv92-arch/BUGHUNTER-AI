@@ -145,3 +145,102 @@ def test_engine_skips_profiles_reusing_owner_credential(db, monkeypatch):
     )
     assert requests == []
     assert stats["owned_resource_checks_skipped"] == 1
+
+def test_full_hunt_reserves_budget_for_registered_resource_verification(
+    db, monkeypatch
+):
+    project, resource, profiles = _resource_fixture(db, monkeypatch)
+    requests = []
+
+    class FakeTransport:
+        def __init__(self, hostname):
+            assert hostname == "example.com"
+
+        def validate_dns(self):
+            return None
+
+        def close(self):
+            return None
+
+    class FakeCookies:
+        def clear(self):
+            pass
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            self.cookies = FakeCookies()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+    target = "https://example.com/api/orders/synthetic-order-123"
+
+    def fake_read(client, url, request_headers=None):
+        requests.append((url, dict(request_headers or {})))
+        if url.endswith("/robots.txt"):
+            return {
+                "status": 404, "headers": {}, "body": b"",
+                "cookies": [], "truncated": False,
+            }
+        if url == "https://example.com/":
+            return {
+                "status": 200,
+                "headers": {"content-type": "text/html"},
+                "body": b"<html><body>test target</body></html>",
+                "cookies": [], "truncated": False,
+            }
+        if url == target:
+            if request_headers == {"Authorization": "Bearer owner-test-token"}:
+                return {
+                    "status": 200, "headers": {"content-type": "application/json"},
+                    "body": b'{"id":"synthetic-order-123"}',
+                    "cookies": [], "truncated": False,
+                }
+            if request_headers == {"Authorization": "Bearer viewer-test-token"}:
+                return {
+                    "status": 200, "headers": {"content-type": "application/json"},
+                    "body": b'{"id":"synthetic-order-123"}',
+                    "cookies": [], "truncated": False,
+                }
+        return {
+            "status": 404, "headers": {}, "body": b"",
+            "cookies": [], "truncated": False,
+        }
+
+    monkeypatch.setattr(engine, "PinnedHTTPTransport", FakeTransport)
+    monkeypatch.setattr(engine.httpx, "Client", FakeClient)
+    monkeypatch.setattr(engine, "_read_limited_response", fake_read)
+    monkeypatch.setattr(engine.time, "sleep", lambda _seconds: None)
+
+    stats = engine.run_website_analysis(
+        db,
+        project.id,
+        "https://example.com/",
+        max_pages=40,
+        delay_seconds=0.5,
+        auth_profiles=profiles,
+    )
+
+    resource_requests = [
+        (url, headers) for url, headers in requests if url == target
+    ]
+    assert len(resource_requests) == 2
+    assert stats["owned_resource_checks_attempted"] == 1
+    assert stats["owned_resource_owner_checks_passed"] == 1
+    assert stats["cross_account_access_leads"] == 1
+    assert stats["credentialed_api_requests"] == 2
+    assert stats["total_requests"] <= 40
+    assert stats["request_limit_reached"] is False
+
+    finding = db.scalar(select(Finding).where(
+        Finding.project_id == project.id,
+        Finding.title == "Potential cross-account access to researcher-owned API resource",
+    ))
+    assert finding is not None
+    assert finding.status == "potential"
+    assert "synthetic-order-123" not in finding.evidence
+    assert resource.endpoint_template == finding.asset
+
