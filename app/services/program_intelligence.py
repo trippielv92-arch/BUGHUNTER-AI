@@ -234,8 +234,22 @@ def _extract_assets(policy_text, programme_url):
                 host = (parsed.hostname or "").lower().rstrip(".")
                 if not host or host == provider_host:
                     continue
-                asset = raw_url
-                asset_type = "url_path" if parsed.path not in ("", "/") or parsed.query else "url"
+                exact_https_origin = (
+                    parsed.scheme.lower() == "https"
+                    and parsed.port in (None, 443)
+                    and parsed.path in ("", "/")
+                    and not parsed.query
+                )
+                if exact_https_origin:
+                    asset = host
+                    asset_type = "hostname"
+                else:
+                    asset = raw_url
+                    asset_type = (
+                        "url_path"
+                        if parsed.path not in ("", "/") or parsed.query
+                        else "url"
+                    )
                 _record_asset(records, asset, asset_type, disposition, confidence, unit)
                 url_spans.append(match.span())
             except ValueError:
