@@ -113,3 +113,16 @@ def test_unattested_resource_cannot_be_decrypted(db, monkeypatch):
     resource.ownership_attested = False
     with pytest.raises(ValueError, match="not been attested"):
         decrypt_registered_reference(resource)
+
+def test_owner_profile_cannot_be_deleted_while_resource_mappings_exist(
+    db, monkeypatch
+):
+    project, profile = _setup(db, monkeypatch)
+    register_researcher_owned_resource(
+        db, project.id, "example.com",
+        "https://example.com/api/orders/{id}", profile.id,
+        "synthetic-order-123", "Owner account accessed this synthetic order.",
+    )
+    from app.services.credential_vault import delete_test_credential_profile
+    with pytest.raises(ValueError, match="resource mappings first"):
+        delete_test_credential_profile(db, project.id, profile.id)
