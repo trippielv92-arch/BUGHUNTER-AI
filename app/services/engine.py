@@ -2191,7 +2191,7 @@ def run_website_analysis(
     if not isinstance(max_pages, int) or not 1 <= max_pages <= MAX_PAGES:
         raise ValueError(f"max_pages must be between 1 and {MAX_PAGES}.")
 
-    delay_seconds = max(MIN_DELAY_SECONDS, min(float(delay_seconds), 5.0))
+    delay_seconds = max(MIN_DELAY_SECONDS, min(float(delay_seconds), 3600.0))
 
     parsed = validate_target(db, project_id, start_url)
 
