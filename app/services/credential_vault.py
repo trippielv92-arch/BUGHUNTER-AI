@@ -59,16 +59,18 @@ def create_test_credential_profile(
         raise ValueError("Approve the exact project scope before adding test accounts.")
 
     normalized_host = _normalize_scope_host(host)
-    approved_hosts = {
-        _normalize_scope_host(asset.host)
-        for asset in db.scalars(
-            select(ScopeAsset).where(
-                ScopeAsset.project_id == project_id,
-                ScopeAsset.included.is_(True),
-                ScopeAsset.approved.is_(True),
-            )
-        ).all()
-    }
+    approved_hosts = set()
+    for asset in db.scalars(
+        select(ScopeAsset).where(
+            ScopeAsset.project_id == project_id,
+            ScopeAsset.included.is_(True),
+            ScopeAsset.approved.is_(True),
+        )
+    ).all():
+        try:
+            approved_hosts.add(_normalize_scope_host(asset.host))
+        except ValueError:
+            continue
     if normalized_host not in approved_hosts:
         raise ValueError(
             "Credential profiles must be attached to an exact approved in-scope host."
