@@ -2285,7 +2285,7 @@ def run_website_analysis(
     db,
     project_id,
     start_url,
-    max_pages=15,
+    max_pages=100,
     delay_seconds=0.75,
     stop_event=None,
     progress_callback=None,
