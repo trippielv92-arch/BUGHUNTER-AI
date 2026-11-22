@@ -55,12 +55,15 @@ INCLUDED_PATTERNS = (
 )
 
 SECTION_EXCLUDED = re.compile(
-    r"^(?:out[- ]of[- ]scope|excluded(?:\s+assets?)?|prohibited(?:\s+assets?)?|"
-    r"not\s+in\s+scope)\s*:?$", re.I
+    r"^(?:out[- ]of[- ]scope(?:\s+assets?)?|excluded(?:\s+assets?)?|"
+    r"prohibited(?:\s+assets?)?|not\s+in\s+scope(?:\s+assets?)?)\s*:?$",
+    re.I,
 )
 SECTION_INCLUDED = re.compile(
-    r"^(?:in[- ]scope|included(?:\s+assets?)?|eligible(?:\s+assets?)?|"
-    r"scope\s+assets?)\s*:?$", re.I
+    r"^(?:in[- ]scope(?:\s+assets?)?|included(?:\s+assets?)?|"
+    r"eligible(?:\s+(?:assets?|targets?))?|scope\s+assets?|"
+    r"targets?\s+in\s+scope)\s*:?$",
+    re.I,
 )
 
 POLICY_TOPICS = {
