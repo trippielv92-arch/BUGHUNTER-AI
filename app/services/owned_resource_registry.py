@@ -118,8 +118,8 @@ def register_researcher_owned_resource(
         raise ValueError("Resource reference must be 1 to 512 printable characters.")
 
     note = str(attestation_note or "").strip()
-    if len(note) < 10 or len(note) > 2000:
-        raise ValueError("Ownership attestation note must contain 10 to 2000 characters.")
+    if len(note) < 20 or len(note) > 2000:
+        raise ValueError("Ownership attestation note must contain 20 to 2000 characters.")
 
     fingerprint = _fingerprint(reference)
     duplicate = db.scalar(
