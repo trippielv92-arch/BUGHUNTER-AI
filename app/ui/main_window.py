@@ -1043,7 +1043,7 @@ class Window(QMainWindow):
   self.start_website_button.clicked.connect(self.start_website_analysis)
   analysis_buttons.addWidget(self.start_website_button)
 
-  self.stop_website_button=QPushButton("STOP ANALYSIS")
+  self.stop_website_button=QPushButton("STOP HUNT")
   self.stop_website_button.setEnabled(False)
   self.stop_website_button.clicked.connect(self.stop_website_analysis)
   analysis_buttons.addWidget(self.stop_website_button)
@@ -4038,6 +4038,8 @@ class Window(QMainWindow):
  def start_website_analysis(self):
   try:
    self.require_project()
+   if self.api_client is not None:
+    raise ValueError("Persistent hunts currently run only in the local SQLite workspace. Central-server worker execution is not yet available.")
    from app.services.workflows import validate_target
    url=self.website_url.text().strip()
    if not url:
@@ -4055,9 +4057,12 @@ class Window(QMainWindow):
    if answer!=QMessageBox.Yes:
     return
    job=create_hunt_job(self.db,self.project_id,url,max_pages=25)
-   service=subprocess.run(["systemctl","--user","start","bughunter-hunt-worker.service"],capture_output=True,text=True,check=False)
+   try:
+    service=subprocess.run(["systemctl","--user","start","bughunter-hunt-worker.service"],capture_output=True,text=True,check=False)
+   except OSError:
+    service=None
    self.website_progress.setValue(0)
-   if service.returncode==0:
+   if service is not None and service.returncode==0:
     self.website_status.setText(f"Hunt #{job.id} queued. Persistent worker is starting.")
     QMessageBox.information(self,"Hunt queued",f"Automated hunt #{job.id} has been queued. It will continue independently of this window while the worker service is running.")
    else:
