@@ -1,3 +1,4 @@
+import json
 from app.services.projects import create_project, add_scope_asset, approve_scope
 from app.services import engine
 
@@ -543,3 +544,24 @@ def test_credentialed_api_comparison_uses_only_per_request_test_credentials(
     assert "owner@example.test" not in combined_details
     assert "standard@example.test" not in combined_details
     assert "email" in combined_details
+
+    # The engine must persist one endpoint-level comparison across both
+    # researcher-owned roles, while retaining a conservative no-difference
+    # result when their response metadata is identical.
+    assert stats["role_comparisons_completed"] == 1
+    assert stats["role_differences_observed"] == 0
+
+    summaries = db.query(ScanCheck).filter(
+        ScanCheck.project_id == project.id,
+        ScanCheck.check_name == "Role-based authorization evidence summary",
+    ).all()
+    assert len(summaries) == 1
+    summary = json.loads(summaries[0].details)
+    assert summary["roles_compared"] == ["owner", "standard"]
+    assert summary["behavioral_difference_observed"] is False
+    assert summary["automatically_confirmed"] is False
+    assert summary["manual_review_required"] is True
+    assert "owner-token" not in summaries[0].details
+    assert "standard-token" not in summaries[0].details
+    assert "owner@example.test" not in summaries[0].details
+    assert "standard@example.test" not in summaries[0].details
