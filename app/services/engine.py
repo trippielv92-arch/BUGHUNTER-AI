@@ -264,7 +264,7 @@ def _safe_anonymous_get_endpoint(endpoint, origin):
         # Never probe a concrete object identifier discovered in a URL;
         # that could cross into another researcher's or customer's record.
         object_id_pattern = re.compile(
-            r"(?:\\d{1,20}|[0-9a-f]{8}-[0-9a-f]{4}-"
+            r"(?:\d{1,20}|[0-9a-f]{8}-[0-9a-f]{4}-"
             r"[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|"
             r"[A-Za-z0-9_-]{28,})",
             re.IGNORECASE,
