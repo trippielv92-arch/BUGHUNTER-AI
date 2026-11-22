@@ -831,6 +831,8 @@ class Window(QMainWindow):
    self.remote_project_name.clear()
    self.remote_project_url.clear()
    self.refresh_remote_projects()
+   self.remote_project_id = int(project["id"])
+   self.remote_project = project
    self.remote_project_details.setPlainText(
     f"Created remote project #{project['id']}\n"
     f"Name: {project['name']}\n"
