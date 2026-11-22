@@ -115,7 +115,7 @@ def test_exposure_probe_detects_sensitive_config_property_names_only():
         200,
         b'{"clientSecret":"never-store-this","apiKey":"also-secret"}',
     )
-    assert indicator == "Sensitive configuration property names"
+    assert indicator == "Non-empty sensitive configuration field"
     assert "never-store-this" not in indicator
 
 
