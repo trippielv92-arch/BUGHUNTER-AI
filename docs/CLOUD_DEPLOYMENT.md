@@ -40,12 +40,12 @@ You must provide a VPS/cloud host, domain, TLS reverse proxy and backups.
 
    docker compose --env-file .env -f docker-compose.cloud.yml up -d --build
 
-7. Check service health and logs:
+8. Check service health and logs:
 
    docker compose --env-file .env -f docker-compose.cloud.yml ps
    docker compose --env-file .env -f docker-compose.cloud.yml logs -f api worker
 
-8. Create the first account interactively (the password is prompted, not placed
+9. Create the first account interactively (the password is prompted, not placed
    in shell history):
 
    docker compose --env-file .env -f docker-compose.cloud.yml exec api python -m app.cli create-account --username YOUR_USERNAME
