@@ -2061,6 +2061,16 @@ def _openapi_operation_metadata(document, path_item, operation, documented_path)
         if any(marker in compact(x["name"]) for marker in sensitive_markers)
     })
 
+    url_input_markers = {
+        "url", "uri", "imageurl", "avatarurl", "webhookurl",
+        "feedurl", "resourceurl", "documenturl", "downloadurl",
+        "fetchurl", "proxyurl", "sourceurl", "remoteurl", "fileurl",
+        "targeturl", "endpointurl", "callbackurl",
+    }
+    url_input_parameter_names = sorted({
+        item["name"] for item in parameters
+        if compact(item["name"]) in url_input_markers
+    })
     def resolve_ref(reference):
         if not isinstance(reference, str) or not reference.startswith("#/"):
             return None
@@ -2130,6 +2140,10 @@ def _openapi_operation_metadata(document, path_item, operation, documented_path)
             body_fields.add(item["name"][:120])
 
     body_fields = sorted(body_fields)[:200]
+    url_input_body_field_names = sorted({
+        name for name in body_fields
+        if compact(name) in url_input_markers
+    })
 
     components = document.get("components", {})
     schemes = (
@@ -2158,6 +2172,8 @@ def _openapi_operation_metadata(document, path_item, operation, documented_path)
         "parameter_locations": sorted({x["in"] for x in parameters}),
         "identity_parameter_names": identity_names,
         "sensitive_parameter_names": sensitive_names,
+        "url_input_parameter_names": url_input_parameter_names,
+        "url_input_body_field_names": url_input_body_field_names,
         "request_body_field_names": body_fields,
         "request_body_required": bool(
             request_body.get("required", False)
@@ -2282,6 +2298,12 @@ def _record_openapi_operation_assessment(
     body_fields = safe_names(
         metadata.get("request_body_field_names"), 50
     )
+    url_input_parameters = safe_names(
+        metadata.get("url_input_parameter_names")
+    )
+    url_input_body_fields = safe_names(
+        metadata.get("url_input_body_field_names")
+    )
     security_schemes = safe_names(
         metadata.get("security_requirement_names")
     )
@@ -2308,6 +2330,8 @@ def _record_openapi_operation_assessment(
         indicators.append("identity_related_parameters")
     if sensitive_parameters:
         indicators.append("sensitive_parameter_names")
+    if url_input_parameters or url_input_body_fields:
+        indicators.append("server_side_url_input_candidate")
     if write_method:
         indicators.append("write_operation_requires_controlled_review")
 
@@ -2323,6 +2347,8 @@ def _record_openapi_operation_assessment(
         "available_security_scheme_names": available_schemes,
         "identity_parameter_names": identity_names,
         "sensitive_parameter_names": sensitive_parameters,
+        "url_input_parameter_names": url_input_parameters,
+        "url_input_body_field_names": url_input_body_fields,
         "request_body_field_names": body_fields,
         "request_body_required": (
             metadata.get("request_body_required") is True
@@ -2348,6 +2374,38 @@ def _record_openapi_operation_assessment(
         "completed",
         json.dumps(result, ensure_ascii=True)[:8000],
     )
+
+    if url_input_parameters or url_input_body_fields:
+        _save_finding(
+            db=db,
+            project_id=project_id,
+            title="Potential server-side URL fetch input (SSRF review)",
+            category="SSRF Review",
+            severity="low",
+            confidence="low",
+            asset=url,
+            description=(
+                "The OpenAPI description declares URL-like input fields. "
+                "These may be consumed by server-side fetch, import, preview, "
+                "webhook, or proxy functionality, but documentation alone does "
+                "not establish that the server makes outbound requests."
+            ),
+            evidence=json.dumps({
+                "method": method,
+                "documented_path": str(documented_path or "")[:500],
+                "url_input_parameter_names": url_input_parameters,
+                "url_input_body_field_names": url_input_body_fields,
+                "network_requests_made": 0,
+                "payloads_executed": False,
+                "auto_confirmed": False,
+            }, ensure_ascii=True)[:4000],
+            remediation=(
+                "Review the server-side handling of these URL inputs. If they "
+                "trigger outbound requests, enforce destination allowlists, "
+                "block private and link-local address ranges, revalidate DNS "
+                "after resolution, and restrict redirects."
+            ),
+        )
 
 
 def _analyze_reflected_query_inputs(
@@ -2824,6 +2882,7 @@ def run_website_analysis(
         "openapi_operations_skipped": 0,
         "openapi_identity_parameters_detected": 0,
         "openapi_sensitive_parameters_detected": 0,
+        "openapi_url_input_parameters_detected": 0,
         "openapi_body_fields_discovered": 0,
         "openapi_operations_without_security": 0,
     }
@@ -3519,6 +3578,10 @@ def run_website_analysis(
                                             )
                                             stats["openapi_sensitive_parameters_detected"] += len(
                                                 metadata["sensitive_parameter_names"]
+                                            )
+                                            stats["openapi_url_input_parameters_detected"] += (
+                                                len(metadata["url_input_parameter_names"])
+                                                + len(metadata["url_input_body_field_names"])
                                             )
                                             stats["openapi_body_fields_discovered"] += len(
                                                 metadata["request_body_field_names"]

@@ -106,6 +106,17 @@ FAMILY_RULES = {
             "credentialed_response_difference_observed",
         ),
     },
+    "ssrf": {
+        "finding_terms": (
+            "ssrf", "server-side request forgery",
+            "server-side url fetch input",
+        ),
+        "checks": ("OpenAPI documented operation assessment",),
+        "markers": (
+            "url_input_parameter_names",
+            "url_input_body_field_names",
+        ),
+    },
     "forms": {
         "finding_terms": ("password form", "password over get", "external form", "external origin"),
         "checks": ("HTML transport, form, metadata, and debug review",),
