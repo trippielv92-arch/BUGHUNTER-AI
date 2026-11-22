@@ -89,8 +89,9 @@ capture is not part of this deployment foundation.
   hostname authorization. The complete proposed list still requires explicit
   scope approval. A changed policy snapshot revokes previous scope approval.
 - Explicit automated-scanning prohibitions suppress active website crawling.
-  Parsed request-rate limits increase the delay between active requests.
-  These controls are conservative heuristics; inspect the original policy.
+  A broader ban on automated tools also suppresses passive discovery. Parsed
+  request-rate limits increase the delay between active requests. These
+  controls are conservative heuristics; inspect the original policy.
 - A policy page that is JavaScript-rendered, blocked, or behind authentication
   may require manual policy text import. Authenticated browser capture is not
   included yet.
