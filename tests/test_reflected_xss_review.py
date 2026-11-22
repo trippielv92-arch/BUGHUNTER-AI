@@ -131,9 +131,10 @@ def test_reflected_xss_validation_is_supporting_evidence_only(db):
     assert finding.status == "potential"
 
 
-def test_reflection_early_returns_include_all_stats():
+def test_reflection_early_returns_include_all_stats(db):
+    project = _project(db)
     result = engine._analyze_reflected_query_inputs(
-        None, 1, "https://example.com/page", "text/html", b"<html></html>"
+        db, project.id, "https://example.com/page", "text/html", b"<html></html>"
     )
     assert result == {
         "parameters_reviewed": 0,
