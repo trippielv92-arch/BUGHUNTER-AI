@@ -20,7 +20,8 @@ from app.services.projects import require_active_project
 from app.services.workflows import _normalize_scope_host
 
 
-def _fingerprint(reference):
+def derive_project_fingerprint_key(project_id):
+    """Derive a stable keyed fingerprint key isolated to one project."""
     import os
 
     key = os.environ.get("BUGHUNTER_CREDENTIAL_ENCRYPTION_KEY", "").strip()
@@ -30,7 +31,15 @@ def _fingerprint(reference):
         )
     return hmac.new(
         key.encode("ascii"),
-        reference.encode("utf-8"),
+        f"bughunter-project:{int(project_id)}".encode("ascii"),
+        hashlib.sha256,
+    ).digest()
+
+
+def fingerprint_resource_reference(reference, project_id):
+    return hmac.new(
+        derive_project_fingerprint_key(project_id),
+        str(reference).encode("utf-8"),
         hashlib.sha256,
     ).hexdigest()
 
@@ -121,7 +130,7 @@ def register_researcher_owned_resource(
     if len(note) < 20 or len(note) > 2000:
         raise ValueError("Ownership attestation note must contain 20 to 2000 characters.")
 
-    fingerprint = _fingerprint(reference)
+    fingerprint = fingerprint_resource_reference(reference, project_id)
     duplicate = db.scalar(
         select(ResearcherOwnedResource).where(
             ResearcherOwnedResource.project_id == project_id,
