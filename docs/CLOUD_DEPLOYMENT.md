@@ -27,16 +27,25 @@ You must provide a VPS/cloud host, domain, TLS reverse proxy and backups.
    BUGHUNTER_API_SECRET (at least 32 characters for the API secret).
 5. Ensure the password embedded in BUGHUNTER_DATABASE_URL exactly matches
    POSTGRES_PASSWORD. URL-encode special characters in the password.
-6. Start the stack:
+6. If you will use controlled test-account profiles, generate a Fernet key
+   with:
+   
+   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+
+   Set the result as BUGHUNTER_CREDENTIAL_ENCRYPTION_KEY in the VPS .env file.
+   Use the same private key for the API and worker. Keep it backed up securely
+   and stable; losing it makes stored credentials undecryptable. Do not commit
+   it to GitHub or paste it into the desktop UI.
+7. Start the stack:
 
    docker compose --env-file .env -f docker-compose.cloud.yml up -d --build
 
-7. Check service health and logs:
+8. Check service health and logs:
 
    docker compose --env-file .env -f docker-compose.cloud.yml ps
    docker compose --env-file .env -f docker-compose.cloud.yml logs -f api worker
 
-8. Create the first account interactively (the password is prompted, not placed
+9. Create the first account interactively (the password is prompted, not placed
    in shell history):
 
    docker compose --env-file .env -f docker-compose.cloud.yml exec api python -m app.cli create-account --username YOUR_USERNAME
@@ -76,9 +85,19 @@ capture is not part of this deployment foundation.
   vulnerability verifier. Existing automated hunts still perform passive
   DNS/Certificate Transparency discovery, bounded same-host HTTPS GET
   discovery, endpoint inventory and evidence correlation.
-- Vulnerability-specific checks requiring authentication, controlled accounts,
-  payloads or special permission are not silently run. Potential findings are
-  not automatically promoted to confirmed.
+- Optional researcher-owned bearer-token and Cookie-header profiles are
+  encrypted at rest with BUGHUNTER_CREDENTIAL_ENCRYPTION_KEY. The API and
+  worker must share the same key. If it is absent or incorrect, credentialed
+  assessment fails closed and anonymous discovery can continue.
+- Credentialed comparisons are read-only GET checks against discovered,
+  parameter-free API routes, limited to three profiles and twelve credentialed
+  requests per approved host. Only status codes and sensitive field names are
+  retained; credentials and response values are not.
+- These comparisons provide evidence for manual authentication/role review;
+  they do not prove IDOR or broken access control. IDOR object ownership,
+  state-changing authorization, SSRF, injection and business-logic checks are
+  not automatically executed. Potential findings are never promoted to
+  confirmed without independent verification.
 - Policy extraction is generic across programme URLs and recognizes
   several common providers. It preserves page section boundaries, extracts
   exact hostnames, wildcard hostnames, CIDRs, IP literals and path-limited

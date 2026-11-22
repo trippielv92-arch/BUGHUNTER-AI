@@ -243,3 +243,26 @@ class ProgramAsset(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=now_utc
     )
+
+
+class TestCredentialProfile(Base):
+    """Encrypted researcher-owned test-account credential, scoped to one host."""
+
+    __tablename__ = "test_credential_profiles"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(
+        ForeignKey("projects.id"), index=True
+    )
+    host: Mapped[str] = mapped_column(String(253), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    role_label: Mapped[str] = mapped_column(String(80), default="test account")
+    auth_type: Mapped[str] = mapped_column(String(20))
+    encrypted_secret: Mapped[str] = mapped_column(Text)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, onupdate=now_utc
+    )

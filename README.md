@@ -78,8 +78,10 @@ See [docs/CLOUD_DEPLOYMENT.md](docs/CLOUD_DEPLOYMENT.md) for setup, secrets, TLS
 - Uses up to 100 bounded HTTPS GET requests per approved host, with same-host boundaries, robots.txt checks and bounded response handling.
 - Checks a fixed set of common exposed configuration, repository, diagnostic and API-documentation paths; it does not brute-force directories and does not retain secret values.
 - Performs up to 12 additional endpoint-specific, unauthenticated GET checks against discovered same-host API routes, within the same total request budget.
-- Omits discovered query strings, cookies and credentials from those API checks; skips non-GET methods, templated object routes, risky action-like paths and robots-disallowed endpoints.
+- Omits discovered query strings, cookies and credentials from anonymous API checks; skips non-GET methods, templated or concrete object-ID routes, risky action-like paths and robots-disallowed endpoints.
 - Records 401/403 responses as access-control observations and flags only non-empty personal-data-like JSON field names from successful anonymous responses. It never stores response values and does not assume that a public endpoint is a vulnerability.
+- Supports optional encrypted bearer-token and Cookie-header profiles for researcher-owned test accounts, bound to an exact approved host. When configured, the worker compares anonymous and authenticated GET response status and sensitive field-name metadata, with a separate 12-request ceiling.
+- Credentialed comparisons never submit forms or non-GET operations, never reuse response cookies, and never store credential or response values. Behavioral differences are review evidence, not automatic vulnerability confirmations.
 - Enforces parsed programme restrictions: explicit automated-scanning bans skip active crawling, broader bans on automated tools also skip passive discovery, and extracted request-rate limits increase inter-request delay.
 - Inventories discovered pages, forms, JavaScript references and documented API operations where available.
 - Creates metadata-driven manual assessment recommendations for discovered endpoints.
@@ -94,8 +96,8 @@ The current hunt page/request limit is bounded (maximum 100). Website discovery 
 - Exclusions and programme restrictions take precedence; review the official policy before approving scope.
 - New DNS/CT names are candidates only. They are not authorization.
 - The automated hunt does not run SQL injection, XSS, IDOR, SSRF, authentication bypass, payment, race-condition or other exploit payloads.
-- The anonymous API check is not a credentialed authentication test. It does not compare researcher-owned user roles or prove that an endpoint should require login.
-- Controlled authenticated authorization, IDOR, SSRF, injection and business-logic checks remain manual and require approved test accounts, synthetic data or a controlled environment.
+- Credentialed GET comparisons are limited to discovered parameter-free API routes and up to three explicitly supplied test-account profiles. They do not prove IDOR or broken access control, and they do not test state-changing operations.
+- IDOR object-ownership verification, SSRF, injection, CSRF and business-logic checks remain manual and require approved test accounts, synthetic data or a controlled environment.
 - Potential findings are not automatically confirmed. Correlation is supporting evidence only.
 - Do not put credentials, session tokens or other secrets in the target URL. Hunt creation rejects query strings for this reason.
 

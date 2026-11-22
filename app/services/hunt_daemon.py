@@ -285,6 +285,38 @@ def run_job(job_id, project_id, owner_id):
             )
         else:
             # The strictest parsed programme rate limit overrides our default delay.
+            credential_profiles = []
+            try:
+                from urllib.parse import urlsplit
+                from app.services.credential_vault import (
+                    load_test_credential_profiles,
+                )
+                credential_profiles = load_test_credential_profiles(
+                    db, project_id, urlsplit(target).hostname
+                )
+                results["credentialed_assessment"] = {
+                    "status": (
+                        "configured" if credential_profiles else "not_configured"
+                    ),
+                    "profiles_available": len(credential_profiles),
+                    "secret_material_in_job_input": False,
+                }
+            except RuntimeError as credential_error:
+                results["credentialed_assessment"] = {
+                    "status": "skipped",
+                    "reason": str(credential_error),
+                    "network_requests": 0,
+                    "secret_material_in_job_input": False,
+                }
+                db.add(ScanCheck(
+                    project_id=project_id,
+                    asset=target,
+                    check_name="Credentialed assessment configuration",
+                    outcome="skipped",
+                    details=str(credential_error)[:1000],
+                ))
+                db.commit()
+
             results["website_analysis"] = run_website_analysis(
                 db, project_id, target,
                 max_pages=max_pages,
@@ -296,6 +328,7 @@ def run_job(job_id, project_id, owner_id):
                     db, job_id, 20 + int(int(pct) * 0.75),
                     "Website discovery: " + str(msg),
                 ),
+                auth_profiles=credential_profiles,
             )
 
         if job_stop.is_set() or (results["website_analysis"] or {}).get("stopped"):
