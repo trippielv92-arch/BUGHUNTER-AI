@@ -3571,13 +3571,6 @@ def run_website_analysis(
                     or "\r" in secret
                     or "\n" in secret
                 ):
-                    authorization_observations.append({
-                        "endpoint": endpoint_url,
-                        "role_label": role_label,
-                        "status": status,
-                        "sensitive_field_names": field_names,
-                        "response_truncated": bool(response.get("truncated")),
-                    })
                     _save_check(
                         db, project_id, endpoint_url,
                         "Credentialed API access comparison",
@@ -3677,6 +3670,13 @@ def run_website_analysis(
                             "was observed for this request."
                         ),
                     }
+                    authorization_observations.append({
+                        "endpoint": endpoint_url,
+                        "role_label": role_label,
+                        "status": status,
+                        "sensitive_field_names": field_names,
+                        "response_truncated": bool(response.get("truncated")),
+                    })
                     _save_check(
                         db, project_id, endpoint_url,
                         "Credentialed API access comparison",
