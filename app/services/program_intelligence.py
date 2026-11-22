@@ -171,7 +171,7 @@ def _classify_context(context, section=""):
     if any(re.search(pattern, text) for pattern in INCLUDED_PATTERNS):
         return "included_candidate", "medium"
     if section == "included_candidate":
-        return "included_candidate", "low"
+        return "included_candidate", "medium"
     return "ambiguous", "low"
 
 
