@@ -73,7 +73,7 @@ def test_resource_requires_explicit_ownership_attestation_note(db, monkeypatch):
         register_researcher_owned_resource(
             db, project.id, "example.com",
             "https://example.com/api/orders/{id}", profile.id,
-            "synthetic-order-123", "not enough",
+            "synthetic-order-123", "too short",
         )
 
 
