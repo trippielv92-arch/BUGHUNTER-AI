@@ -163,7 +163,7 @@ def _split_units(policy_text):
         if not line:
             continue
         # A single scraped paragraph may contain both inclusion and exclusion.
-        parts = re.split(r"\s+[;|]\s+|\s+•\s+", line)
+        parts = re.split(r"\s*[;|]\s*|\s+•\s+", line)
         units.extend(part.strip(" -\t") for part in parts if part.strip(" -\t"))
     return units
 
