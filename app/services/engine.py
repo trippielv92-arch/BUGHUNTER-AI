@@ -2409,6 +2409,104 @@ def _record_openapi_operation_assessment(
         )
 
 
+def _analyze_open_redirect_response(db, project_id, url, status, headers):
+    """Flag only observed external redirects paired with redirect-like query inputs."""
+    status = int(status)
+    if not 300 <= status < 400:
+        return {"candidate": False}
+
+    parsed = urlsplit(url)
+    safe_asset = parsed._replace(query="", fragment="").geturl()
+    location = ""
+    for name, value in (headers or {}).items():
+        if str(name).lower() == "location":
+            location = str(value or "").strip()
+            break
+    if not location:
+        return {"candidate": False}
+
+    try:
+        parameters = parse_qsl(
+            parsed.query, keep_blank_values=False, max_num_fields=100
+        )
+        destination = urlsplit(urljoin(url, location))
+        source_port = parsed.port or (443 if parsed.scheme.lower() == "https" else 80)
+        destination_port = destination.port or (
+            443 if destination.scheme.lower() == "https" else 80
+        )
+    except (ValueError, TypeError):
+        return {"candidate": False}
+
+    redirect_markers = {
+        "redirect", "redirecturl", "redirecturi", "return", "returnto",
+        "returnurl", "next", "nexturl", "continue", "continueurl",
+        "destination", "destinationurl", "callback", "callbackurl",
+        "postlogoutredirecturi", "logoutredirecturi",
+    }
+    names = sorted({
+        re.sub(r"[^a-zA-Z0-9_.-]", "_", name)[:80]
+        for name, _value in parameters
+        if re.sub(r"[^a-z0-9]", "", name.lower()) in redirect_markers
+    })
+    if (
+        not names
+        or destination.scheme.lower() not in {"http", "https"}
+        or not destination.hostname
+        or destination.username is not None
+        or destination.password is not None
+    ):
+        return {"candidate": False}
+
+    external_origin = (
+        destination.hostname.lower().rstrip(".")
+        != (parsed.hostname or "").lower().rstrip(".")
+        or destination_port != source_port
+    )
+    if not external_origin:
+        return {"candidate": False}
+
+    details = {
+        "redirect_parameter_names": names,
+        "destination_host": destination.hostname.lower().rstrip(".")[:253],
+        "destination_scheme": destination.scheme.lower(),
+        "http_status": status,
+        "redirect_followed": False,
+        "location_path_recorded": False,
+        "location_query_recorded": False,
+        "query_values_recorded": False,
+        "network_requests_made": 0,
+        "auto_confirmed": False,
+    }
+    _save_check(
+        db, project_id, safe_asset,
+        "Redirect destination review",
+        "external_redirect_candidate",
+        json.dumps(details, ensure_ascii=True)[:4000],
+    )
+    _save_finding(
+        db=db,
+        project_id=project_id,
+        title="Potential open redirect to an external origin",
+        category="Open Redirect Review",
+        severity="medium",
+        confidence="low",
+        asset=safe_asset,
+        description=(
+            "An in-scope request containing a redirect-like query parameter "
+            "returned an HTTP redirect to a different origin. The redirect "
+            "was not followed. This is a candidate only; the parameter may "
+            "not control the destination and the behavior may be intentional."
+        ),
+        evidence=json.dumps(details, ensure_ascii=True)[:4000],
+        remediation=(
+            "Review redirect destination handling. Prefer relative paths or "
+            "strict allowlists of trusted origins, and reject protocol-relative "
+            "or user-info URL tricks."
+        ),
+    )
+    return {"candidate": True, "parameter_count": len(names)}
+
+
 def _analyze_reflected_query_inputs(
     db, project_id, url, content_type, body, truncated=False
 ):
@@ -2934,6 +3032,7 @@ def run_website_analysis(
         "insecure_form_pages": 0,
         "csrf_candidate_forms_detected": 0,
         "unescaped_reflected_query_parameters": 0,
+        "open_redirect_candidates": 0,
         "sql_error_indicators_detected": 0,
         "api_sensitive_fields_detected": 0,
         "api_verbose_errors_detected": 0,
@@ -3079,6 +3178,12 @@ def run_website_analysis(
 
                 # Redirects are recorded, never followed automatically.
                 if 300 <= status < 400:
+                    redirect_stats = _analyze_open_redirect_response(
+                        db, project_id, url, status, response_headers
+                    )
+                    stats["open_redirect_candidates"] += int(
+                        redirect_stats["candidate"]
+                    )
                     _save_check(
                         db,
                         project_id,
