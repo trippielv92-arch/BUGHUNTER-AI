@@ -3,7 +3,8 @@ from app.services import engine
 
 
 def test_failed_page_requests_consume_limit_and_keep_rate_spacing(db, monkeypatch):
-    project = create_project(db, "Engine request cap")
+    project = create_project(db, "Engine request cap", "https://example.com")
+    project.policy_text = "Authorized test policy for example.com."
     add_scope_asset(db, project.id, "example.com")
     approve_scope(db, project)
 
