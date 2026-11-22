@@ -1,6 +1,7 @@
 import pytest
 
-from app.services.analyzer import analyze_programme\nfrom app.services.program_intelligence import (
+from app.services.analyzer import analyze_programme
+from app.services.program_intelligence import (
     analyze_program_policy,
     derive_policy_execution_controls,
     identify_provider,
