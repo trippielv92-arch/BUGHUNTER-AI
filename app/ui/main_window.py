@@ -2,7 +2,7 @@ import json
 import sys
 import subprocess
 from pathlib import Path
-from PySide6.QtWidgets import QApplication,QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,QLabel,QLineEdit,QPushButton,QMessageBox,QDialog,QTabWidget,QFormLayout,QTextEdit,QListWidget,QListWidgetItem,QInputDialog,QFileDialog,QToolButton,QGroupBox,QGridLayout,QFrame,QHeaderView,QTableWidget,QTableWidgetItem,QCheckBox
+from PySide6.QtWidgets import QApplication,QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,QLabel,QLineEdit,QPushButton,QMessageBox,QDialog,QTabWidget,QFormLayout,QTextEdit,QListWidget,QListWidgetItem,QInputDialog,QFileDialog,QToolButton,QGroupBox,QGridLayout,QFrame,QHeaderView,QTableWidget,QTableWidgetItem,QCheckBox,QComboBox
 from PySide6.QtCore import Qt, QUrl, QTimer
 from app.services.passive_recon_worker import PassiveReconWorker
 from PySide6.QtWidgets import QProgressBar
@@ -311,6 +311,56 @@ class Window(QMainWindow):
   policy_layout.addLayout(review_actions)
 
   layout.addWidget(policy_box)
+
+  # REMOTE_TEST_ACCOUNT_PROFILES
+  credential_box = QGroupBox("CONTROLLED TEST-ACCOUNT CREDENTIALS")
+  credential_layout = QVBoxLayout(credential_box)
+  credential_layout.addWidget(QLabel(
+   "Optional: add bearer tokens or session Cookie headers for researcher-owned "
+   "test accounts. Secrets are encrypted on the server and are never shown "
+   "again. The server must have BUGHUNTER_CREDENTIAL_ENCRYPTION_KEY configured."
+  ))
+  credential_form = QFormLayout()
+  self.remote_credential_host = QComboBox()
+  self.remote_credential_name = QLineEdit()
+  self.remote_credential_name.setPlaceholderText("e.g. account-owner")
+  self.remote_credential_role = QLineEdit()
+  self.remote_credential_role.setPlaceholderText("e.g. owner / standard / support")
+  self.remote_credential_type = QComboBox()
+  self.remote_credential_type.addItem("Bearer token", "bearer")
+  self.remote_credential_type.addItem("Cookie header", "cookie")
+  self.remote_credential_secret = QLineEdit()
+  self.remote_credential_secret.setEchoMode(QLineEdit.Password)
+  self.remote_credential_secret.setPlaceholderText(
+   "Paste a short-lived test-account token or Cookie header"
+  )
+  credential_form.addRow("Approved host", self.remote_credential_host)
+  credential_form.addRow("Profile name", self.remote_credential_name)
+  credential_form.addRow("Account role", self.remote_credential_role)
+  credential_form.addRow("Credential type", self.remote_credential_type)
+  credential_form.addRow("Secret (write-only)", self.remote_credential_secret)
+  credential_layout.addLayout(credential_form)
+  credential_actions = QHBoxLayout()
+  add_credential_button = QPushButton("SAVE ENCRYPTED TEST ACCOUNT")
+  add_credential_button.clicked.connect(self.add_remote_test_credential)
+  credential_actions.addWidget(add_credential_button)
+  refresh_credentials_button = QPushButton("REFRESH PROFILES")
+  refresh_credentials_button.setStyleSheet("background:#475569")
+  refresh_credentials_button.clicked.connect(
+   self.refresh_remote_test_credentials
+  )
+  credential_actions.addWidget(refresh_credentials_button)
+  delete_credential_button = QPushButton("DELETE SELECTED")
+  delete_credential_button.setStyleSheet("background:#7f1d1d")
+  delete_credential_button.clicked.connect(
+   self.delete_remote_test_credential
+  )
+  credential_actions.addWidget(delete_credential_button)
+  credential_layout.addLayout(credential_actions)
+  self.remote_credential_profiles = QListWidget()
+  self.remote_credential_profiles.setMaximumHeight(105)
+  credential_layout.addWidget(self.remote_credential_profiles)
+  layout.addWidget(credential_box)
 
   notice = QLabel(
    "Cloud hunts run on the server after you select an explicitly approved asset. "
@@ -881,8 +931,103 @@ class Window(QMainWindow):
    self.statusBar().showMessage(
     f"Selected remote project #{project_id}: {project.get('name')}"
    )
+   self.refresh_remote_test_credentials()
   except APIError as exc:
    QMessageBox.warning(self, "Project details", str(exc))
+
+
+ def refresh_remote_test_credentials(self):
+  if not self.api_client or not self.remote_project_id:
+   return
+  try:
+   assets = self.api_client.list_project_resource(
+    self.remote_project_id, "assets"
+   )
+   current_host = self.remote_credential_host.currentData()
+   self.remote_credential_host.clear()
+   for asset in assets:
+    if asset.get("included") and asset.get("approved") and asset.get("host"):
+     self.remote_credential_host.addItem(
+      str(asset["host"]), str(asset["host"])
+     )
+   if current_host:
+    index = self.remote_credential_host.findData(current_host)
+    if index >= 0:
+     self.remote_credential_host.setCurrentIndex(index)
+   profiles = self.api_client.list_test_credential_profiles(
+    self.remote_project_id
+   )
+   self.remote_credential_profiles.clear()
+   for profile in profiles:
+    label = (
+     f"#{profile.get('id')} — {profile.get('host')} | "
+     f"{profile.get('name')} [{profile.get('role_label')}] "
+     f"({profile.get('auth_type')})"
+    )
+    item = QListWidgetItem(label)
+    item.setData(Qt.UserRole, profile.get("id"))
+    self.remote_credential_profiles.addItem(item)
+  except APIError as exc:
+   self.remote_credential_profiles.clear()
+   self.remote_credential_profiles.addItem(
+    f"Credential profiles unavailable: {exc}"
+   )
+
+ def add_remote_test_credential(self):
+  if not self.api_client or not self.remote_project_id:
+   QMessageBox.warning(self, "Test account", "Select a remote project first.")
+   return
+  host = self.remote_credential_host.currentData()
+  name = self.remote_credential_name.text().strip()
+  role = self.remote_credential_role.text().strip()
+  auth_type = self.remote_credential_type.currentData()
+  secret = self.remote_credential_secret.text()
+  if not host or not name or not role or not secret:
+   QMessageBox.warning(
+    self, "Test account",
+    "Select an approved host and enter the profile name, role and secret."
+   )
+   return
+  try:
+   profile = self.api_client.add_test_credential_profile(
+    self.remote_project_id, host, name, role, auth_type, secret
+   )
+   self.remote_credential_secret.clear()
+   self.remote_credential_name.clear()
+   self.remote_credential_role.clear()
+   self.refresh_remote_test_credentials()
+   QMessageBox.information(
+    self, "Test account",
+    f"Encrypted profile #{profile.get('id')} saved for {host}. "
+    "The secret is not returned by the server."
+   )
+  except APIError as exc:
+   QMessageBox.warning(self, "Test account", str(exc))
+
+ def delete_remote_test_credential(self):
+  if not self.api_client or not self.remote_project_id:
+   return
+  item = self.remote_credential_profiles.currentItem()
+  profile_id = item.data(Qt.UserRole) if item else None
+  if not profile_id:
+   QMessageBox.warning(self, "Test account", "Select a saved profile to delete.")
+   return
+  answer = QMessageBox.question(
+   self, "Delete test account",
+   "Delete this encrypted test-account credential profile?",
+   QMessageBox.Yes | QMessageBox.No,
+   QMessageBox.No,
+  )
+  if answer != QMessageBox.Yes:
+   return
+  try:
+   self.api_client.delete_test_credential_profile(
+    self.remote_project_id, profile_id
+   )
+   self.refresh_remote_test_credentials()
+  except APIError as exc:
+   QMessageBox.warning(self, "Test account", str(exc))
+
 
  def select_remote_archived_project(self, item):
   project_id = item.data(Qt.UserRole)
