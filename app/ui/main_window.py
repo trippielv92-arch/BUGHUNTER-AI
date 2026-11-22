@@ -207,6 +207,10 @@ class Window(QMainWindow):
    "Select a project to view its server-side details."
   )
   details_layout.addWidget(self.remote_project_details)
+  self.remote_start_hunt_button = QPushButton("START CLOUD HUNT")
+  self.remote_start_hunt_button.setEnabled(False)
+  self.remote_start_hunt_button.clicked.connect(self.start_remote_hunt)
+  details_layout.addWidget(self.remote_start_hunt_button)
   layout.addWidget(details_box)
 
   # REMOTE_PROGRAM_POLICY_REVIEW
@@ -294,13 +298,19 @@ class Window(QMainWindow):
   add_scope_button.setStyleSheet("background:#475569")
   add_scope_button.clicked.connect(self.add_remote_candidate_to_scope)
   review_actions.addWidget(add_scope_button)
+
+  approve_scope_button = QPushButton("APPROVE REMOTE SCOPE")
+  approve_scope_button.setStyleSheet("background:#15803d")
+  approve_scope_button.clicked.connect(self.approve_remote_scope)
+  review_actions.addWidget(approve_scope_button)
   policy_layout.addLayout(review_actions)
 
   layout.addWidget(policy_box)
 
   notice = QLabel(
-   "Remote project management is enabled. Research screens, assessment workers, "
-   "evidence storage and report generation have not yet been migrated to the central server."
+   "Cloud hunts run on the server after you select an explicitly approved asset. "
+   "The current worker performs passive discovery and bounded HTTPS GET inventory; "
+   "comprehensive vulnerability verification and remote evidence/report screens are still under development."
   )
   notice.setWordWrap(True)
   notice.setStyleSheet("color:#f0c674;padding:8px")
@@ -309,6 +319,136 @@ class Window(QMainWindow):
   self.setCentralWidget(root)
   self.statusBar().showMessage("Connected to central BugHunter AI API.")
   self.refresh_remote_projects()
+
+ def approve_remote_scope(self):
+  project_id = self.remote_project_id
+  if not self.api_client or not project_id or not self.remote_project:
+   QMessageBox.warning(self, "Approve scope", "Select a remote project first.")
+   return
+
+  policy_text = self.remote_policy_text.toPlainText().strip()
+  if not policy_text:
+   QMessageBox.warning(
+    self, "Approve scope",
+    "Analyze the programme URL or paste its official policy text first."
+   )
+   return
+
+  try:
+   assets = self.api_client.list_project_resource(project_id, "assets")
+   included = [
+    asset.get("host", "") for asset in assets
+    if asset.get("included") and asset.get("host")
+   ]
+   excluded = [
+    asset.get("host", "") for asset in assets
+    if not asset.get("included") and asset.get("host")
+   ]
+   if not included:
+    QMessageBox.warning(
+     self, "Approve scope",
+     "There are no included assets. Review policy candidates and add "
+     "explicitly authorized assets to proposed scope first."
+    )
+    return
+
+   details = "Included assets to approve:\n" + "\n".join(included)
+   if excluded:
+    details += "\n\nExcluded assets (will remain unapproved):\n" + "\n".join(excluded)
+   answer = QMessageBox.question(
+    self,
+    "Confirm exact remote scope",
+    details + "\n\nApprove only this exact included asset list?",
+    QMessageBox.Yes | QMessageBox.No,
+    QMessageBox.No,
+   )
+   if answer != QMessageBox.Yes:
+    return
+
+   self.api_client.approve_scope(project_id, policy_text)
+   self.remote_project = self.api_client.get_project(project_id)
+   self.remote_start_hunt_button.setEnabled(True)
+   self.remote_project_details.setPlainText(
+    f"Project: {self.remote_project.get('name')}\n"
+    "Scope approved on the cloud server.\n"
+    f"Approved included assets: {len(included)}\n"
+    f"Excluded assets: {len(excluded)}\n\n"
+    "Use START CLOUD HUNT to queue discovery for each approved asset."
+   )
+   self.remote_policy_status.setText(
+    f"Remote scope approved: {len(included)} included asset(s). "
+    "Excluded assets remain unapproved."
+   )
+  except APIError as exc:
+   QMessageBox.warning(self, "Approve scope", str(exc))
+  except Exception as exc:
+   QMessageBox.warning(self, "Approve scope", f"Could not approve scope: {exc}")
+
+ def start_remote_hunt(self):
+  project = self.remote_project
+  project_id = self.remote_project_id
+
+  if not self.api_client or not project or not project_id:
+   QMessageBox.warning(self, "Cloud hunt", "Select a remote project first.")
+   return
+
+  if not project.get("scope_approved"):
+   QMessageBox.warning(
+    self, "Cloud hunt",
+    "Approve the exact programme scope before starting a hunt."
+   )
+   return
+
+  queued = []
+  try:
+   assets = self.api_client.list_project_resource(project_id, "assets")
+   approved = [
+    asset for asset in assets
+    if asset.get("included") and asset.get("approved") and asset.get("host")
+   ]
+   if not approved:
+    QMessageBox.warning(
+     self, "Cloud hunt",
+     "This project has no explicitly approved in-scope assets."
+    )
+    return
+
+   for asset in approved:
+    host = asset["host"]
+    job = self.api_client.start_hunt(
+     project_id,
+     f"https://{host}/",
+     max_pages=25,
+    )
+    queued.append((job.get("id"), host))
+
+   summary = "\n".join(
+    f"Job #{job_id}: {host}" for job_id, host in queued
+   )
+   self.statusBar().showMessage(
+    f"Queued {len(queued)} cloud hunt(s) for project #{project_id}."
+   )
+   QMessageBox.information(
+    self,
+    "Cloud hunts queued",
+    f"Queued {len(queued)} independent cloud hunt job(s):\n\n"
+    f"{summary}\n\n"
+    "They continue independently of this desktop. Current automated "
+    "coverage is passive discovery and bounded HTTPS GET inventory, "
+    "not comprehensive vulnerability verification.",
+   )
+  except APIError as exc:
+   if queued:
+    QMessageBox.warning(
+     self,
+     "Cloud hunt partially queued",
+     f"Queued {len(queued)} job(s) before the API returned an error:\n"
+     f"{exc}",
+    )
+   else:
+    QMessageBox.warning(self, "Cloud hunt", str(exc))
+  except Exception as exc:
+   QMessageBox.warning(self, "Cloud hunt", f"Could not queue hunts: {exc}")
 
  def analyze_remote_program(self):
   project = self.remote_project
@@ -352,6 +492,9 @@ class Window(QMainWindow):
     "Policy analysis saved. Candidate assets require independent review; "
     "none have been approved."
    )
+   extracted_text = (result.get("analysis") or {}).get("policy_text", "")
+   if extracted_text:
+    self.remote_policy_text.setPlainText(extracted_text)
    self.refresh_remote_policy_assets()
 
    self.remote_project_details.setPlainText(
@@ -607,6 +750,7 @@ class Window(QMainWindow):
    )
    self.remote_project_id = None
    self.remote_project = None
+   self.remote_start_hunt_button.setEnabled(False)
    self.statusBar().showMessage(f"Loaded {len(projects)} remote project(s).")
   except APIError as exc:
    QMessageBox.warning(self, "Refresh projects", str(exc))
@@ -650,6 +794,10 @@ class Window(QMainWindow):
    project = self.api_client.get_project(int(project_id))
    self.remote_project_id = int(project_id)
    self.remote_project = project
+   self.remote_start_hunt_button.setEnabled(
+    bool(project.get("scope_approved"))
+    and str(project.get("status", "")).lower() != "deleted"
+   )
    self.remote_project_details.setPlainText(
     f"Project ID: {project.get('id')}\n"
     f"Name: {project.get('name')}\n"
@@ -658,8 +806,8 @@ class Window(QMainWindow):
     f"Description: {project.get('description') or 'None'}\n"
     f"Scope approved: {'YES' if project.get('scope_approved') else 'NO'}\n"
     f"Created: {project.get('created_at')}\n\n"
-    "This is a remote project record. Research functionality is not yet enabled "
-    "in this remote workspace."
+    "Cloud hunts are queued on the central server and continue independently "
+    "of this desktop session."
    )
    self.statusBar().showMessage(
     f"Selected remote project #{project_id}: {project.get('name')}"
@@ -679,6 +827,7 @@ class Window(QMainWindow):
 
    self.remote_project_id = int(project_id)
    self.remote_project = project
+   self.remote_start_hunt_button.setEnabled(False)
    self.remote_project_details.setPlainText(
     f"Archived project #{project.get('id')}\n"
     f"Name: {project.get('name')}\n"

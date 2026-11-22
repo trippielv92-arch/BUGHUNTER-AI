@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker, DeclarativeBase, Session, with_loader_criteria
 from sqlalchemy import event, select
 from app.core.config import DATABASE_URL
@@ -82,8 +82,8 @@ def _validate_account_project_writes(session, flush_context, instances):
 
         # Use the current transaction connection to verify ownership.
         # This also protects updates and deletes of existing child records.
-        result = session.connection().exec_driver_sql(
-            "SELECT owner_id FROM projects WHERE id = :project_id",
+        result = session.connection().execute(
+            text("SELECT owner_id FROM projects WHERE id = :project_id"),
             {"project_id": project_id},
         ).first()
 
@@ -148,8 +148,8 @@ def init_db():
                     (users[0][0],),
                 )
             else:
-                connection.exec_driver_sql(
-                    "UPDATE projects SET owner_id = :owner_id WHERE owner_id IS NULL",
+                connection.execute(
+                    text("UPDATE projects SET owner_id = :owner_id WHERE owner_id IS NULL"),
                     {"owner_id": users[0][0]},
                 )
 
