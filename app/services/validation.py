@@ -95,8 +95,16 @@ FAMILY_RULES = {
             "authorization", "cross-account access", "idor",
             "broken object level", "tenant isolation",
         ),
-        "checks": ("Researcher-owned resource cross-account comparison",),
-        "markers": ("owner_attested_cross_account_success",),
+        "checks": (
+            "Researcher-owned resource cross-account comparison",
+            "Role-based authorization evidence summary",
+            "Credentialed API access comparison",
+        ),
+        "markers": (
+            "owner_attested_cross_account_success",
+            "role_behavioral_difference_observed",
+            "credentialed_response_difference_observed",
+        ),
     },
     "forms": {
         "finding_terms": ("password form", "password over get", "external form", "external origin"),
@@ -167,6 +175,8 @@ def _matching_checks(family, finding, checks, rule):
             "cross_account_access_denied",
             "inconclusive",
             "owner_access_not_verified",
+            "difference_observed",
+            "completed",
         }
     else:
         allowed_outcomes = {"completed"}
@@ -199,6 +209,22 @@ def _collect_validation_markers(family, matched, rule):
                     continue
                 if 200 <= requester_status < 300:
                     found.add("owner_attested_cross_account_success")
+            elif (
+                check.check_name == "Role-based authorization evidence summary"
+                and isinstance(details, dict)
+                and details.get("behavioral_difference_observed") is True
+                and details.get("automatically_confirmed") is False
+            ):
+                found.add("role_behavioral_difference_observed")
+            elif (
+                check.check_name == "Credentialed API access comparison"
+                and isinstance(details, dict)
+                and (
+                    details.get("status_changed") is True
+                    or details.get("sensitive_field_names_changed") is True
+                )
+            ):
+                found.add("credentialed_response_difference_observed")
         return found
 
     for check in matched:
