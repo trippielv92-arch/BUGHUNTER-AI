@@ -2871,6 +2871,17 @@ def run_website_analysis(
             try:
                 validate_target(db, project_id, probe_url)
 
+                if robots_available and not robots.can_fetch(USER_AGENT, probe_url):
+                    _save_check(
+                        db,
+                        project_id,
+                        probe_url,
+                        "Robots policy",
+                        "skipped",
+                        "Exposure path disallowed by robots.txt.",
+                    )
+                    continue
+
                 if stats["total_requests"] > 0:
                     if stop_event is not None:
                         if stop_event.wait(delay_seconds):
