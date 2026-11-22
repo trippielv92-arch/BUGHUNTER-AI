@@ -202,6 +202,8 @@ def _matching_checks(family, finding, checks, rule):
             "difference_observed",
             "completed",
         }
+    elif family == "open_redirect":
+        allowed_outcomes = {"external_redirect_candidate"}
     else:
         allowed_outcomes = {"completed"}
     return [
