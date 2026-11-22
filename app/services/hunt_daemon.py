@@ -84,19 +84,38 @@ def recover_interrupted_hunts():
 
 
 def claim_next_job():
-    """Atomically claim one queued hunt to prevent duplicate workers."""
+    """Atomically claim one queued hunt on SQLite or PostgreSQL."""
     with engine.connect() as connection:
-        connection.exec_driver_sql("BEGIN IMMEDIATE")
         try:
-            row = connection.execute(text(
-                "SELECT j.id, j.project_id, p.owner_id "
-                "FROM assessment_jobs j "
-                "JOIN projects p ON p.id=j.project_id "
-                "WHERE j.status='queued' AND j.job_type=:kind "
-                "AND p.status <> 'deleted' AND p.scope_approved=1 "
-                "AND p.owner_id IS NOT NULL "
-                "ORDER BY j.created_at, j.id LIMIT 1"
-            ), {"kind": JOB_TYPE}).first()
+            if engine.dialect.name == "sqlite":
+                # SQLite has no row-level SKIP LOCKED; serialize claimers.
+                connection.exec_driver_sql("BEGIN IMMEDIATE")
+                row = connection.execute(text(
+                    "SELECT j.id, j.project_id, p.owner_id "
+                    "FROM assessment_jobs j "
+                    "JOIN projects p ON p.id=j.project_id "
+                    "WHERE j.status='queued' AND j.job_type=:kind "
+                    "AND p.status <> 'deleted' AND p.scope_approved IS TRUE "
+                    "AND p.owner_id IS NOT NULL "
+                    "ORDER BY j.created_at, j.id LIMIT 1"
+                ), {"kind": JOB_TYPE}).first()
+            elif engine.dialect.name == "postgresql":
+                # Multiple cloud workers can safely claim different jobs.
+                connection.begin()
+                row = connection.execute(text(
+                    "SELECT j.id, j.project_id, p.owner_id "
+                    "FROM assessment_jobs j "
+                    "JOIN projects p ON p.id=j.project_id "
+                    "WHERE j.status='queued' AND j.job_type=:kind "
+                    "AND p.status <> 'deleted' AND p.scope_approved IS TRUE "
+                    "AND p.owner_id IS NOT NULL "
+                    "ORDER BY j.created_at, j.id "
+                    "FOR UPDATE OF j SKIP LOCKED LIMIT 1"
+                ), {"kind": JOB_TYPE}).first()
+            else:
+                raise RuntimeError(
+                    "Hunt workers support SQLite and PostgreSQL only."
+                )
 
             if not row:
                 connection.commit()
@@ -266,8 +285,8 @@ def run_job(job_id, project_id, owner_id):
 
 
 def main():
-    if engine.dialect.name != "sqlite":
-        raise RuntimeError("This local worker currently requires SQLite.")
+    if engine.dialect.name not in {"sqlite", "postgresql"}:
+        raise RuntimeError("Hunt workers require SQLite or PostgreSQL.")
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     init_db()
