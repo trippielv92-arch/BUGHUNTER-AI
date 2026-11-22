@@ -122,7 +122,7 @@ def _exposure_probe_indicator(probe_path, status, body):
     if probe_path == "/.env":
         if re.search(
             r"(?im)^\s*(?:APP_KEY|DB_PASSWORD|DATABASE_URL|SECRET_KEY|"
-            r"JWT_SECRET|CLIENT_SECRET|PRIVATE_KEY|AWS_SECRET_ACCESS_KEY|API_KEY)\s*=",
+            r"JWT_SECRET|CLIENT_SECRET|PRIVATE_KEY|AWS_SECRET_ACCESS_KEY|API_KEY)\s*=\s*\S+",
             text,
         ):
             return "Environment-variable configuration markers"
