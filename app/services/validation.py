@@ -159,7 +159,7 @@ def _walk_for_markers(value, wanted, found=None, depth=0):
     return found
 
 
-def _matching_checks(finding, checks, rule):
+def _matching_checks(family, finding, checks, rule):
     allowed_names = set(rule["checks"])
     if family == "authorization":
         allowed_outcomes = {
@@ -348,7 +348,7 @@ def validate_project_findings(db, project_id):
                 "Manual review and reproducible evidence are required."
             )
         else:
-            matched = _matching_checks(finding, checks, rule)
+            matched = _matching_checks(family, finding, checks, rule)
             markers = _collect_validation_markers(
                 family, matched, rule
             )
