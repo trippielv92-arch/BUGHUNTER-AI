@@ -2,6 +2,7 @@ import pytest
 
 from app.services.program_intelligence import (
     analyze_program_policy,
+    derive_policy_execution_controls,
     identify_provider,
 )
 
@@ -109,3 +110,42 @@ def test_provider_domain_is_not_misclassified_as_a_target():
 def test_empty_policy_is_rejected():
     with pytest.raises(ValueError):
         analyze_program_policy("https://example.org/program", "  ")
+
+
+def test_explicit_automated_scanning_ban_disables_active_crawl():
+    controls = derive_policy_execution_controls(
+        "Do not use automated scanners against programme assets."
+    )
+    assert controls["active_automated_testing_allowed"] is False
+    assert controls["automated_testing_prohibition_evidence"]
+
+
+def test_automated_scanning_prohibition_word_order_is_recognized():
+    controls = derive_policy_execution_controls(
+        "Automated scanning is prohibited."
+    )
+    assert controls["active_automated_testing_allowed"] is False
+
+
+def test_strictest_policy_rate_limit_is_converted_to_minimum_delay():
+    controls = derive_policy_execution_controls(
+        "Limit traffic to 10 requests per second. "
+        "The API limit is 30 requests per minute."
+    )
+    assert controls["rate_limit_requests_per_second"] == pytest.approx(0.5)
+    assert controls["minimum_request_delay_seconds"] == pytest.approx(2.0)
+
+
+def test_hourly_rate_limit_is_not_clamped_to_default_delay():
+    controls = derive_policy_execution_controls(
+        "Maximum 5 requests per hour."
+    )
+    assert controls["minimum_request_delay_seconds"] == pytest.approx(720.0)
+
+
+def test_no_explicit_restriction_keeps_conservative_default():
+    controls = derive_policy_execution_controls(
+        "Testing is allowed on the listed production web application."
+    )
+    assert controls["active_automated_testing_allowed"] is True
+    assert controls["minimum_request_delay_seconds"] == pytest.approx(0.75)
