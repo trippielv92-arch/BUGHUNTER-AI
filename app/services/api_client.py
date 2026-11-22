@@ -136,6 +136,33 @@ class APIClient:
             f"/api/v1/projects/{int(project_id)}/{resource}",
         )
 
+    def list_test_credential_profiles(self, project_id):
+        return self.request(
+            "GET",
+            f"/api/v1/projects/{int(project_id)}/test-credentials",
+        )
+
+    def add_test_credential_profile(
+        self, project_id, host, name, role_label, auth_type, secret
+    ):
+        return self.request(
+            "POST",
+            f"/api/v1/projects/{int(project_id)}/test-credentials",
+            json_data={
+                "host": host,
+                "name": name,
+                "role_label": role_label,
+                "auth_type": auth_type,
+                "secret": secret,
+            },
+        )
+
+    def delete_test_credential_profile(self, project_id, profile_id):
+        return self.request(
+            "DELETE",
+            f"/api/v1/projects/{int(project_id)}/test-credentials/{int(profile_id)}",
+        )
+
     def start_hunt(self, project_id, start_url, max_pages=100):
         return self.request(
             "POST",
