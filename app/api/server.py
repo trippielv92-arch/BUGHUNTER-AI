@@ -496,6 +496,36 @@ def get_project_jobs(
     ).all()
 
 
+class HuntCreateRequest(BaseModel):
+    start_url: str = Field(min_length=1, max_length=2048)
+    max_pages: int = Field(default=25, ge=1, le=25)
+
+
+@app.post(
+    "/api/v1/projects/{project_id}/hunts",
+    response_model=AssessmentJobOut,
+    status_code=202,
+)
+def queue_project_hunt(
+    project_id: int,
+    data: HuntCreateRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    _require_owned_project(db, project_id)
+    from app.services.jobs import create_hunt_job
+
+    try:
+        return create_hunt_job(
+            db,
+            project_id,
+            data.start_url,
+            max_pages=data.max_pages,
+        )
+    except ValueError as exc:
+        _service_error(db, exc)
+
+
 # REMOTE_WRITE_ROUTES_V1
 # All operations below require an authenticated, account-scoped DB session.
 
