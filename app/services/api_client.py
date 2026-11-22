@@ -136,7 +136,7 @@ class APIClient:
             f"/api/v1/projects/{int(project_id)}/{resource}",
         )
 
-    def start_hunt(self, project_id, start_url, max_pages=25):
+    def start_hunt(self, project_id, start_url, max_pages=100):
         return self.request(
             "POST",
             f"/api/v1/projects/{int(project_id)}/hunts",

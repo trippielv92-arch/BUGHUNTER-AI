@@ -44,7 +44,7 @@ from app.services.projects import log_activity
 from app.services.workflows import validate_target, recommend_endpoint_tests
 
 
-MAX_PAGES = 25
+MAX_PAGES = 100
 MAX_RESPONSE_BYTES = 1_000_000
 MIN_DELAY_SECONDS = 0.5
 
@@ -53,11 +53,128 @@ EXPOSURE_PROBE_PATHS = (
     "/.env",
     "/.git/HEAD",
     "/actuator/env",
+    "/config.json",
+    "/phpinfo.php",
+    "/server-status",
+    "/debug/vars",
+    "/.DS_Store",
     "/openapi.json",
     "/swagger.json",
+    "/v3/api-docs",
+    "/api-docs",
+    "/swagger/v1/swagger.json",
+    "/.well-known/openapi.json",
+)
+
+API_DOCUMENTATION_PATHS = (
+    "/openapi.json",
+    "/swagger.json",
+    "/v3/api-docs",
+    "/api-docs",
+    "/swagger/v1/swagger.json",
+    "/.well-known/openapi.json",
 )
 
 DIAGNOSTIC_ORIGIN = "https://bughunter-ai.invalid"
+
+
+def _has_nonempty_sensitive_config_field(text):
+    """Inspect JSON property names and presence only; never return field values."""
+    try:
+        payload = json.loads(text[:500000])
+    except (ValueError, TypeError):
+        return False
+
+    sensitive_names = {
+        "apikey", "clientsecret", "accesstoken", "privatekey",
+        "databaseurl", "jwtsecret", "secretkey", "password",
+    }
+    pending = [payload]
+    visited = 0
+    while pending and visited < 5000:
+        current = pending.pop()
+        visited += 1
+        if isinstance(current, dict):
+            for key, value in current.items():
+                normalized = re.sub(r"[^a-z0-9]", "", str(key).lower())
+                if normalized in sensitive_names and value not in (
+                    None, "", False, [], {}
+                ):
+                    return True
+                if isinstance(value, (dict, list)):
+                    pending.append(value)
+        elif isinstance(current, list):
+            pending.extend(
+                value for value in current
+                if isinstance(value, (dict, list))
+            )
+    return False
+
+
+def _exposure_probe_indicator(probe_path, status, body):
+    """Return a marker label only; never return or persist response secrets."""
+    if status != 200:
+        return None
+
+    raw = body if isinstance(body, bytes) else str(body or "").encode("utf-8")
+    text = raw.decode("utf-8", errors="replace")
+
+    if probe_path == "/.env":
+        if re.search(
+            r"(?im)^[ \t]*(?:APP_KEY|DB_PASSWORD|DATABASE_URL|SECRET_KEY|"
+            r"JWT_SECRET|CLIENT_SECRET|PRIVATE_KEY|AWS_SECRET_ACCESS_KEY|API_KEY)[ \t]*=[ \t]*\S+",
+            text,
+        ):
+            return "Environment-variable configuration markers"
+
+    elif probe_path == "/.git/HEAD":
+        if re.match(r"(?im)^\s*ref:\s+refs/", text):
+            return "Git repository HEAD reference"
+
+    elif probe_path == "/actuator/env":
+        if "propertySources" in text and (
+            "activeProfiles" in text or '"property"' in text
+        ):
+            return "Spring actuator environment metadata"
+
+    elif probe_path == "/config.json":
+        if _has_nonempty_sensitive_config_field(text):
+            return "Non-empty sensitive configuration field"
+
+    elif probe_path == "/phpinfo.php":
+        if (
+            "PHP Version" in text
+            and (
+                "Configuration File (php.ini) Path" in text
+                or "Loaded Configuration File" in text
+            )
+        ):
+            return "PHP configuration diagnostic page"
+
+    elif probe_path == "/server-status":
+        if "Apache Server Status" in text and (
+            "Server uptime" in text or "Server Version" in text
+        ):
+            return "Apache server-status diagnostic page"
+
+    elif probe_path == "/debug/vars":
+        try:
+            payload = json.loads(text[:500000])
+        except (ValueError, TypeError):
+            payload = None
+        if isinstance(payload, dict):
+            names = {str(key).lower() for key in payload}
+            if names.intersection({
+                "cmdline", "memstats", "goroutines", "num_goroutine",
+                "heap_alloc", "alloc", "num_cpu",
+            }):
+                return "Runtime diagnostic metrics"
+
+    elif probe_path == "/.DS_Store":
+        if raw[:4] in {b"Bud1", b"Bud2"}:
+            return "macOS directory metadata file"
+
+    return None
 
 
 SECURITY_HEADERS = {
@@ -2168,7 +2285,7 @@ def run_website_analysis(
     db,
     project_id,
     start_url,
-    max_pages=15,
+    max_pages=100,
     delay_seconds=0.75,
     stop_event=None,
     progress_callback=None,
@@ -2229,6 +2346,15 @@ def run_website_analysis(
 
     queue = deque([start_url])
     visited = set()
+
+    # Reserve a portion of the shared request budget for fixed exposure and
+    # API-documentation checks so a deep page crawl cannot starve them.
+    probe_reserve = (
+        len(EXPOSURE_PROBE_PATHS)
+        if max_pages >= len(EXPOSURE_PROBE_PATHS) + 2
+        else 0
+    )
+    crawl_request_limit = max_pages - probe_reserve
 
     initial_finding_count = db.scalar(
         select(func.count()).select_from(Finding).where(
@@ -2352,7 +2478,7 @@ def run_website_analysis(
 
         while (
             queue
-            and stats["total_requests"] < max_pages
+            and stats["total_requests"] < crawl_request_limit
             and not stats["stopped"]
         ):
             url = queue.popleft()
@@ -2745,6 +2871,17 @@ def run_website_analysis(
             try:
                 validate_target(db, project_id, probe_url)
 
+                if robots_available and not robots.can_fetch(USER_AGENT, probe_url):
+                    _save_check(
+                        db,
+                        project_id,
+                        probe_url,
+                        "Robots policy",
+                        "skipped",
+                        "Exposure path disallowed by robots.txt.",
+                    )
+                    continue
+
                 if stats["total_requests"] > 0:
                     if stop_event is not None:
                         if stop_event.wait(delay_seconds):
@@ -2765,39 +2902,27 @@ def run_website_analysis(
                 probe = _read_limited_response(client, probe_url)
                 status = probe["status"]
                 body = probe["body"].decode("utf-8", errors="replace")
-                indicator = None
-
-                if status == 200 and probe_path == "/.env":
-                    if re.search(
-                        r"(?im)^\s*(?:APP_KEY|DB_PASSWORD|DATABASE_URL|"
-                        r"SECRET_KEY|AWS_SECRET_ACCESS_KEY|API_KEY)\s*=",
-                        body,
-                    ):
-                        indicator = "Environment-variable configuration markers"
-
-                elif status == 200 and probe_path == "/.git/HEAD":
-                    if re.match(r"(?im)^\s*ref:\s+refs/", body):
-                        indicator = "Git repository HEAD reference"
-
-                elif status == 200 and probe_path == "/actuator/env":
-                    if "propertySources" in body and (
-                        "activeProfiles" in body or '"property"' in body
-                    ):
-                        indicator = "Spring actuator environment metadata"
-
-                elif status == 200 and probe_path == "/config.json":
-                    # Reserved for future use; not requested in this probe set.
-                    pass
+                indicator = _exposure_probe_indicator(
+                    probe_path, status, probe["body"]
+                )
 
                 if indicator:
                     stats["exposure_indicators"] += 1
+                    severity = (
+                        "high"
+                        if probe_path in {
+                            "/.env", "/.git/HEAD", "/actuator/env", "/config.json"
+                        }
+                        else "low" if probe_path == "/.DS_Store" else "medium"
+                    )
+                    confidence = "medium" if severity == "high" else "low"
                     _save_finding(
                         db=db,
                         project_id=project_id,
                         title=f"Potential exposed sensitive resource: {probe_path}",
                         category="Sensitive Data Exposure",
-                        severity="high",
-                        confidence="medium",
+                        severity=severity,
+                        confidence=confidence,
                         asset=probe_url,
                         description=(
                             "A conventional resource returned content matching "
@@ -2816,9 +2941,7 @@ def run_website_analysis(
                         ),
                     )
 
-                elif status == 200 and probe_path in (
-                    "/openapi.json", "/swagger.json"
-                ):
+                elif status == 200 and probe_path in API_DOCUMENTATION_PATHS:
                     api_notes = []
                     try:
                         document = json.loads(body[:500000])

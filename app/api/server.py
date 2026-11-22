@@ -498,7 +498,7 @@ def get_project_jobs(
 
 class HuntCreateRequest(BaseModel):
     start_url: str = Field(min_length=1, max_length=2048)
-    max_pages: int = Field(default=25, ge=1, le=25)
+    max_pages: int = Field(default=100, ge=1, le=100)
 
 
 @app.post(

@@ -75,14 +75,15 @@ See [docs/CLOUD_DEPLOYMENT.md](docs/CLOUD_DEPLOYMENT.md) for setup, secrets, TLS
 - Optionally queries Certificate Transparency for names related to approved assets.
 - Saves discovered names as candidates with `included=False` and `approved=False`.
 - Revalidates the exact target before bounded website discovery.
-- Uses bounded HTTPS GET requests, same-host boundaries and bounded response handling.
+- Uses up to 100 bounded HTTPS GET requests per approved host, with same-host boundaries, robots.txt checks and bounded response handling.
+- Checks a fixed set of common exposed configuration, repository, diagnostic and API-documentation paths; it does not brute-force directories and does not retain secret values.
 - Enforces parsed programme restrictions: explicit automated-scanning bans skip active crawling, broader bans on automated tools also skip passive discovery, and extracted request-rate limits increase inter-request delay.
 - Inventories discovered pages, forms, JavaScript references and documented API operations where available.
 - Creates metadata-driven manual assessment recommendations for discovered endpoints.
 - Correlates existing observations with potential findings without sending extra requests or payloads.
 - Persists progress, checkpoints, results and job status in the local database.
 
-The current hunt page/request limit is bounded (maximum 25). Website discovery does not follow redirects. Certificate Transparency lookups contact `crt.sh`; discovered target hosts are not probed unless individually reviewed and approved later.
+The current hunt page/request limit is bounded (maximum 100). Website discovery does not follow redirects. Certificate Transparency lookups contact `crt.sh`; discovered target hosts are not probed unless individually reviewed and approved later.
 
 ## Safety and authorization boundaries
 
