@@ -3362,6 +3362,13 @@ def run_website_analysis(
     # Assess a small set of explicitly discovered API GET operations with
     # no Authorization header and no cookies. Never replay discovered query
     # strings, submit forms, or invoke non-GET OpenAPI operations.
+    object_reference_observations = []
+    import secrets
+    object_reference_salt = secrets.token_bytes(32)
+    from app.services.object_reference_discovery import (
+        discover_object_references,
+        summarize_object_reference_observations,
+    )
     api_endpoint_candidates = []
     anonymous_endpoint_observations = {}
     if not stats["stopped"] and endpoint_reserve:
@@ -3552,13 +3559,6 @@ def run_website_analysis(
 
     credential_checks_remaining = False
     authorization_observations = []
-    object_reference_observations = []
-    import secrets
-    object_reference_salt = secrets.token_bytes(32)
-    from app.services.object_reference_discovery import (
-        discover_object_references,
-        summarize_object_reference_observations,
-    )
     # Optional credentialed comparison uses only encrypted profiles
     # attached to this exact approved host. Tokens are passed per request,
     # never placed in job input, logs, URLs, or evidence.
