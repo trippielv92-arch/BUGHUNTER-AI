@@ -363,9 +363,10 @@ class Window(QMainWindow):
   layout.addWidget(credential_box)
 
   notice = QLabel(
-   "Cloud hunts run on the server after you select an explicitly approved asset. "
-   "The current worker performs passive discovery and bounded HTTPS GET inventory; "
-   "comprehensive vulnerability verification and remote evidence/report screens are still under development."
+   "Cloud hunts run on explicitly approved assets. The worker performs passive discovery, "
+   "bounded HTTPS GET inventory, anonymous API access checks and optional encrypted "
+   "test-account GET comparisons. IDOR, injection, SSRF, business-logic verification "
+   "and remote evidence/report screens are still under development."
   )
   notice.setWordWrap(True)
   notice.setStyleSheet("color:#f0c674;padding:8px")
