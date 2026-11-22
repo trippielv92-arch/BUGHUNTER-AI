@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 
 
 DOMAIN_RE = re.compile(
-    r"(?i)(?<![a-z0-9_-])"
+    r"(?i)(?<![a-z0-9_@-])"
     r"(\*\.)?"
     r"((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,})"
     r"(?![a-z0-9_-])"
@@ -247,7 +247,7 @@ def _extract_assets(policy_text, programme_url):
             try:
                 parsed = urlparse(raw_url)
                 host = (parsed.hostname or "").lower().rstrip(".")
-                if not host or host == provider_host:
+                if not host or host == provider_host or host.endswith("." + provider_host):
                     continue
                 exact_https_origin = (
                     parsed.scheme.lower() == "https"
@@ -275,7 +275,7 @@ def _extract_assets(policy_text, programme_url):
                 continue
             wildcard = bool(match.group(1))
             hostname = match.group(2).lower().rstrip(".")
-            if hostname == provider_host:
+            if hostname == provider_host or hostname.endswith("." + provider_host):
                 continue
             asset = ("*." if wildcard else "") + hostname
             _record_asset(
