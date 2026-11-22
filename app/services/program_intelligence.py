@@ -20,6 +20,14 @@ DOMAIN_RE = re.compile(
 URL_RE = re.compile(r"(?i)https?://[^\s<>\"']{1,2048}")
 CIDR_RE = re.compile(r"(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}/\d{1,2}(?![\w.])")
 IPV4_RE = re.compile(r"(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?![\w./])")
+MOBILE_CONTEXT_RE = re.compile(
+    r"\b(?:android|ios|mobile)\b.{0,80}\b"
+    r"(?:package|bundle|application id|app id|identifier)\b"
+    r"|\b(?:package|bundle|application id|app id|identifier)\b.{0,80}\b"
+    r"(?:android|ios|mobile)\b",
+    re.I,
+)
+
 
 PROVIDERS = {
     "hackerone": {"domains": ("hackerone.com",), "name": "HackerOne"},
@@ -287,9 +295,19 @@ def _extract_assets(policy_text, programme_url):
             ):
                 continue
             asset = ("*." if wildcard else "") + hostname
+            mobile_identifier = (
+                not wildcard
+                and hostname.count(".") >= 2
+                and hostname.split(".", 1)[0] in {"com", "org", "net", "io", "co", "app"}
+                and bool(MOBILE_CONTEXT_RE.search(unit))
+            )
+            asset_type = (
+                "mobile_app_identifier"
+                if mobile_identifier
+                else "wildcard_hostname" if wildcard else "hostname"
+            )
             _record_asset(
-                records, asset,
-                "wildcard_hostname" if wildcard else "hostname",
+                records, asset, asset_type,
                 disposition, confidence, unit,
             )
 
@@ -481,8 +499,10 @@ def analyze_program_policy(programme_url, policy_text, source="manual policy tex
         warnings.append("No clearly included hostname candidates were extracted.")
     if ambiguous:
         warnings.append("Some assets lack clear inclusion or exclusion context.")
-    if any(item["type"] in {"url_path", "cidr_network", "ip_address", "wildcard_hostname"}
-           for item in assets):
+    if any(item["type"] in {
+        "url_path", "url", "cidr_network", "ip_address",
+        "wildcard_hostname", "mobile_app_identifier",
+    } for item in assets):
         warnings.append("Non-hostname or broad-scope candidates need separate scope handling and cannot be proposed as ordinary host assets.")
 
     return {
