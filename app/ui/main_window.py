@@ -422,6 +422,7 @@ class Window(QMainWindow):
 
    self.api_client.approve_scope(project_id, policy_text)
    self.remote_project = self.api_client.get_project(project_id)
+   self.refresh_remote_test_credentials()
    self.remote_start_hunt_button.setEnabled(True)
    self.remote_project_details.setPlainText(
     f"Project: {self.remote_project.get('name')}\n"
