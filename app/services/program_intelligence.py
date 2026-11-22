@@ -13,13 +13,13 @@ from urllib.parse import urlparse
 
 DOMAIN_RE = re.compile(
     r"(?i)(?<![a-z0-9_-])"
-    r"(\\*\\.)?"
-    r"((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,})"
+    r"(\*\.)?"
+    r"((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,})"
     r"(?![a-z0-9_-])"
 )
-URL_RE = re.compile(r"(?i)https://[^\\s<>\"']{1,2048}")
-CIDR_RE = re.compile(r"(?<![\\w.])(?:\\d{1,3}\\.){3}\\d{1,3}/\\d{1,2}(?![\\w.])")
-IPV4_RE = re.compile(r"(?<![\\w.])(?:\\d{1,3}\\.){3}\\d{1,3}(?![\\w./])")
+URL_RE = re.compile(r"(?i)https://[^\s<>\"']{1,2048}")
+CIDR_RE = re.compile(r"(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}/\d{1,2}(?![\w.])")
+IPV4_RE = re.compile(r"(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?![\w./])")
 
 PROVIDERS = {
     "hackerone": {"domains": ("hackerone.com",), "name": "HackerOne"},
@@ -36,31 +36,31 @@ PROVIDERS = {
 }
 
 EXCLUDED_PATTERNS = (
-    r"\\bout\\s+of\\s+scope\\b",
-    r"\\bexcluded?\\b",
-    r"\\bnot\\s+in\\s+scope\\b",
-    r"\\bprohibited\\s+assets?\\b",
-    r"\\bdo\\s+not\\s+test\\b",
-    r"\\bnot\\s+eligible\\b",
-    r"\\bexplicitly\\s+excluded\\b",
-    r"\\bno\\s+testing\\b",
+    r"\bout\s+of\s+scope\b",
+    r"\bexcluded?\b",
+    r"\bnot\s+in\s+scope\b",
+    r"\bprohibited\s+assets?\b",
+    r"\bdo\s+not\s+test\b",
+    r"\bnot\s+eligible\b",
+    r"\bexplicitly\s+excluded\b",
+    r"\bno\s+testing\b",
 )
 INCLUDED_PATTERNS = (
-    r"\\bin\\s+scope\\b",
-    r"\\bincluded\\s+assets?\\b",
-    r"\\beligible\\s+assets?\\b",
-    r"\\btargets?\\s+in\\s+scope\\b",
-    r"\\bassets?\\s+covered\\s+by\\s+this\\s+program\\b",
-    r"\\btesting\\s+is\\s+permitted\\b",
+    r"\bin\s+scope\b",
+    r"\bincluded\s+assets?\b",
+    r"\beligible\s+assets?\b",
+    r"\btargets?\s+in\s+scope\b",
+    r"\bassets?\s+covered\s+by\s+this\s+program\b",
+    r"\btesting\s+is\s+permitted\b",
 )
 
 SECTION_EXCLUDED = re.compile(
-    r"^(?:out[- ]of[- ]scope|excluded(?:\\s+assets?)?|prohibited(?:\\s+assets?)?|"
-    r"not\\s+in\\s+scope)\\s*:?$", re.I
+    r"^(?:out[- ]of[- ]scope|excluded(?:\s+assets?)?|prohibited(?:\s+assets?)?|"
+    r"not\s+in\s+scope)\s*:?$", re.I
 )
 SECTION_INCLUDED = re.compile(
-    r"^(?:in[- ]scope|included(?:\\s+assets?)?|eligible(?:\\s+assets?)?|"
-    r"scope\\s+assets?)\\s*:?$", re.I
+    r"^(?:in[- ]scope|included(?:\s+assets?)?|eligible(?:\s+assets?)?|"
+    r"scope\s+assets?)\s*:?$", re.I
 )
 
 POLICY_TOPICS = {
@@ -89,31 +89,31 @@ POLICY_TOPICS = {
 
 RULE_PATTERNS = {
     "prohibited_activities": (
-        r"\\bdenial[- ]of[- ]service\\b", r"\\bddos\\b",
-        r"\\bbrute[- ]force\\b", r"\\bsocial engineering\\b",
-        r"\\bphishing\\b", r"\\bspam(?:ming)?\\b",
-        r"\\bphysical attacks?\\b", r"\\bdestructive testing\\b",
-        r"\\bautomated scanners?\\b", r"\\bload testing\\b",
-        r"\\bavailability testing\\b",
+        r"\bdenial[- ]of[- ]service\b", r"\bddos\b",
+        r"\bbrute[- ]force\b", r"\bsocial engineering\b",
+        r"\bphishing\b", r"\bspam(?:ming)?\b",
+        r"\bphysical attacks?\b", r"\bdestructive testing\b",
+        r"\bautomated scanners?\b", r"\bload testing\b",
+        r"\bavailability testing\b",
     ),
     "authentication_requirements": (
-        r"\\btest accounts?\\b", r"\\bprovided credentials\\b",
-        r"\\bmulti[- ]factor authentication\\b",
-        r"\\baccount registration\\b",
+        r"\btest accounts?\b", r"\bprovided credentials\b",
+        r"\bmulti[- ]factor authentication\b",
+        r"\baccount registration\b",
     ),
     "disclosure_requirements": (
-        r"\\bresponsible disclosure\\b", r"\\bcoordinated disclosure\\b",
-        r"\\bdo not publicly disclose\\b", r"\\bpublic disclosure\\b",
+        r"\bresponsible disclosure\b", r"\bcoordinated disclosure\b",
+        r"\bdo not publicly disclose\b", r"\bpublic disclosure\b",
     ),
     "rate_limit_rules": (
-        r"\\b\\d+\\s*(?:requests?|reqs?)\\s*(?:per|/)\\s*(?:second|minute|hour)\\b",
-        r"\\brate limit\\b", r"\\brequest rate\\b",
-        r"\\brequests per second\\b",
+        r"\b\d+\s*(?:requests?|reqs?)\s*(?:per|/)\s*(?:second|minute|hour)\b",
+        r"\brate limit\b", r"\brequest rate\b",
+        r"\brequests per second\b",
     ),
     "data_handling_rules": (
-        r"\\bpersonal data\\b", r"\\bpersonally identifiable\\b",
-        r"\\bpii\\b", r"\\bdelete test data\\b",
-        r"\\bdo not access real user data\\b",
+        r"\bpersonal data\b", r"\bpersonally identifiable\b",
+        r"\bpii\b", r"\bdelete test data\b",
+        r"\bdo not access real user data\b",
     ),
 }
 
@@ -143,18 +143,18 @@ def identify_provider(programme_url):
 def _split_units(policy_text):
     """Keep policy list/table boundaries and split compact semicolon clauses."""
     units = []
-    for raw_line in str(policy_text).replace("\\r", "\\n").split("\\n"):
-        line = re.sub(r"\\s+", " ", raw_line).strip()
+    for raw_line in str(policy_text).replace("\r", "\n").split("\n"):
+        line = re.sub(r"\s+", " ", raw_line).strip()
         if not line:
             continue
         # A single scraped paragraph may contain both inclusion and exclusion.
-        parts = re.split(r"\\s+[;|]\\s+|\\s+•\\s+", line)
-        units.extend(part.strip(" -\\t") for part in parts if part.strip(" -\\t"))
+        parts = re.split(r"\s+[;|]\s+|\s+•\s+", line)
+        units.extend(part.strip(" -\t") for part in parts if part.strip(" -\t"))
     return units
 
 
 def _section_state(unit, current):
-    heading = re.sub(r"^#+\\s*", "", unit).strip().rstrip(":").strip()
+    heading = re.sub(r"^#+\s*", "", unit).strip().rstrip(":").strip()
     if SECTION_EXCLUDED.fullmatch(heading):
         return "excluded"
     if SECTION_INCLUDED.fullmatch(heading):
@@ -205,9 +205,9 @@ def _extract_assets(policy_text, programme_url):
 
     for unit in units:
         section = _section_state(unit, section)
-        if SECTION_EXCLUDED.fullmatch(re.sub(r"^#+\\s*", "", unit).strip().rstrip(":").strip()):
+        if SECTION_EXCLUDED.fullmatch(re.sub(r"^#+\s*", "", unit).strip().rstrip(":").strip()):
             continue
-        if SECTION_INCLUDED.fullmatch(re.sub(r"^#+\\s*", "", unit).strip().rstrip(":").strip()):
+        if SECTION_INCLUDED.fullmatch(re.sub(r"^#+\s*", "", unit).strip().rstrip(":").strip()):
             continue
 
         disposition, confidence = _classify_context(unit, section)
@@ -293,7 +293,7 @@ def _extract_policy_clues(policy_text):
 def _extract_rules(policy_text):
     sentences = [
         item.strip()
-        for item in re.split(r"(?<=[.!?])\\s+|\\n+", policy_text)
+        for item in re.split(r"(?<=[.!?])\s+|\n+", policy_text)
         if item.strip()
     ]
     rules = {}
@@ -301,7 +301,7 @@ def _extract_rules(policy_text):
         found = []
         for sentence in sentences:
             if any(re.search(pattern, sentence, re.I) for pattern in patterns):
-                compact = re.sub(r"\\s+", " ", sentence).strip()
+                compact = re.sub(r"\s+", " ", sentence).strip()
                 if compact not in found:
                     found.append(compact[:1000])
         if found:
