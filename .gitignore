@@ -1,0 +1,111 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.py[cod]
+.env
+data/*.db
+data/backups/
+data/evidence/*
+!data/evidence/.gitkeep
+dist/
+build/
+
+# Local databases and backups
+*.db
+*.sqlite
+*.sqlite3
+backups/
+data/backups/
+data/dev_synthetic/
+
+# Secrets and private keys
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Local runtime files
+*.log
+
+# SQLite runtime files
+*.db-*
+*.sqlite-*
+*.sqlite3-*
+
+# Local reports and generated evidence
+data/reports/
+data/evidence/
+!data/evidence/.gitkeep
+
+# Backup directories
+backups/
+
+# SQLite runtime files
+*.db-*
+*.sqlite-*
+*.sqlite3-*
+
+# Local reports and generated evidence
+data/reports/
+data/evidence/
+!data/evidence/.gitkeep
+
+# Backup directories
+backups/
+
+# Local databases and runtime files
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite-*
+*.sqlite3-*
+
+# Local backups
+backups/
+*.backup*
+*.bak
+*.old
+*.orig
+
+# Generated reports
+data/reports/
+
+# Private credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Exclude all backup files and directories
+backups/
+*.backup*
+*-backup*
+*.bak
+*.old
+*.orig
+
+# Local databases and runtime files
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite-*
+*.sqlite3-*
+
+# Generated reports
+data/reports/
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
