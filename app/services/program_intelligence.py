@@ -309,6 +309,80 @@ def _extract_rules(policy_text):
     return rules
 
 
+def derive_policy_execution_controls(policy_text):
+    """Translate explicit programme restrictions into conservative worker controls.
+
+    An ambiguous restriction is never treated as permission to exceed a stated
+    rate. This parser only disables automated active crawling when a clear
+    prohibition is present; it never grants authorization.
+    """
+    text = str(policy_text or "")
+    sentences = [
+        item.strip()
+        for item in re.split(r"(?<=[.!?])\\s+|\\n+", text)
+        if item.strip()
+    ]
+
+    automated_prohibition = re.compile(
+        r"(?:\\b(?:no|not|never|prohibit(?:ed)?|forbidden|disallow(?:ed)?)\\b"
+        r".{0,100}\\b(?:automated|automatic|scanner|scanning|tools?)\\b)"
+        r"|(?:\\b(?:automated|automatic)\\s+(?:scanners?|scanning|testing|tools?)\\b"
+        r".{0,100}\\b(?:prohibited|forbidden|not allowed|not permitted|disallowed)\\b)"
+        r"|(?:\\bdo not use\\b.{0,100}\\b(?:automated|automatic|scanner|scanning|tools?)\\b)",
+        re.I,
+    )
+    prohibited_sentences = [
+        sentence[:1000] for sentence in sentences
+        if automated_prohibition.search(sentence)
+    ]
+
+    limits = []
+    per_unit = re.compile(
+        r"\\b(\\d+(?:\\.\\d+)?)\\s*(?:requests?|reqs?)\\s*"
+        r"(?:per|/)\\s*(second|minute|hour)\\b",
+        re.I,
+    )
+    shorthand = re.compile(r"\\b(\\d+(?:\\.\\d+)?)\\s*(rps|rpm|rph)\\b", re.I)
+    for sentence in sentences:
+        for match in per_unit.finditer(sentence):
+            value = float(match.group(1))
+            unit = match.group(2).lower()
+            divisor = {"second": 1, "minute": 60, "hour": 3600}[unit]
+            if value > 0:
+                limits.append({
+                    "requests_per_second": value / divisor,
+                    "source_text": sentence[:1000],
+                })
+        for match in shorthand.finditer(sentence):
+            value = float(match.group(1))
+            divisor = {"rps": 1, "rpm": 60, "rph": 3600}[match.group(2).lower()]
+            if value > 0:
+                limits.append({
+                    "requests_per_second": value / divisor,
+                    "source_text": sentence[:1000],
+                })
+
+    strictest = min(
+        (item["requests_per_second"] for item in limits),
+        default=None,
+    )
+    minimum_delay = max(0.75, 1.0 / strictest) if strictest else 0.75
+
+    return {
+        "active_automated_testing_allowed": not bool(prohibited_sentences),
+        "automated_testing_prohibition_evidence": prohibited_sentences,
+        "rate_limit_requests_per_second": strictest,
+        "minimum_request_delay_seconds": round(minimum_delay, 3),
+        "rate_limit_evidence": [item["source_text"] for item in limits[:20]],
+        "requires_human_policy_review": True,
+        "default_behavior": (
+            "Active automated crawling is skipped when an explicit prohibition is detected."
+            if prohibited_sentences
+            else "Use a conservative 0.75-second delay unless a stricter rate limit is extracted."
+        ),
+    }
+
+
 def analyze_program_policy(programme_url, policy_text, source="manual policy text"):
     """Return structured policy interpretation and candidate assets."""
     if not isinstance(policy_text, str) or not policy_text.strip():
@@ -361,5 +435,6 @@ def analyze_program_policy(programme_url, policy_text, source="manual policy tex
         "policy_topics": _extract_topics(text),
         "policy_clues": _extract_policy_clues(text),
         "rules": _extract_rules(text),
+        "execution_controls": derive_policy_execution_controls(text),
         "warnings": warnings,
     }
