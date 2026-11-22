@@ -2470,8 +2470,12 @@ def _analyze_reflected_query_inputs(
     reflected_names = []
     unescaped_reflected_names = []
     redacted_count = 0
+    normalized_content_type = str(content_type or "").lower()
     html_response = (
-        "html" in str(content_type or "").lower()
+        (
+            "text/html" in normalized_content_type
+            or "application/xhtml+xml" in normalized_content_type
+        )
         and not truncated
     )
 
