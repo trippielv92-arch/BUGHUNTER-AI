@@ -1,5 +1,6 @@
 #!/bin/sh
 set -eu
+cd /opt/bughunter-ai
 export BUGHUNTER_API_URL="${BUGHUNTER_API_URL:-https://bughunter-ai-ebon.vercel.app}"
 export BUGHUNTER_DATA_DIR="${BUGHUNTER_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/bughunter-ai}"
 mkdir -p "$BUGHUNTER_DATA_DIR"
