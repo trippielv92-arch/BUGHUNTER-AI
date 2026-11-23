@@ -1,0 +1,42 @@
+name: Build Parrot Debian package
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "config/**"
+      - "packaging/**"
+      - "scripts/build_deb.sh"
+      - "requirements*.txt"
+      - "main.py"
+      - "pyproject.toml"
+      - ".github/workflows/build-deb.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Debian packaging tools
+        run: sudo apt-get update && sudo apt-get install -y dpkg-dev
+      - name: Build .deb
+        run: |
+          chmod +x scripts/build_deb.sh
+          ./scripts/build_deb.sh
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: BugHunter-AI-Parrot-DEB
+          path: dist/*.deb
+          if-no-files-found: error
+          retention-days: 30
