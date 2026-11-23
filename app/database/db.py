@@ -1,10 +1,31 @@
 from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.engine import make_url
+from sqlalchemy.pool import NullPool
 from sqlalchemy.orm import sessionmaker, DeclarativeBase, Session, with_loader_criteria
 from sqlalchemy import event, select
 from app.core.config import DATABASE_URL
 class Base(DeclarativeBase): pass
-_connect_args = {"check_same_thread": False, "timeout": 30} if DATABASE_URL.startswith("sqlite") else {}
-engine = create_engine(DATABASE_URL, connect_args=_connect_args, future=True)
+# Supabase transaction-mode pooling (port 6543) is intended for short-lived
+# serverless API connections. Disable SQLAlchemy's local pool and psycopg's
+# automatic prepared statements in this mode. Persistent workers use the
+# separate session-pooler URL (normally port 5432) and retain a real session
+# for the PostgreSQL advisory lock.
+_database_url = make_url(DATABASE_URL)
+_is_sqlite = _database_url.drivername.startswith("sqlite")
+_is_supabase_transaction_pooler = (
+    _database_url.drivername == "postgresql+psycopg"
+    and _database_url.port == 6543
+)
+_connect_args = {"check_same_thread": False, "timeout": 30} if _is_sqlite else {}
+if _is_supabase_transaction_pooler:
+    _connect_args["prepare_threshold"] = None
+    engine = create_engine(
+        DATABASE_URL, connect_args=_connect_args, poolclass=NullPool, future=True
+    )
+else:
+    engine = create_engine(
+        DATABASE_URL, connect_args=_connect_args, pool_pre_ping=True, future=True
+    )
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
 
