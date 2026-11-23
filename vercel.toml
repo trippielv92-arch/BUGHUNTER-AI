@@ -1,0 +1,7 @@
+#:schema https://openapi.vercel.sh/vercel.json
+
+[daemons.hunt-worker]
+root = "."
+entrypoint = "Dockerfile.cloud"
+command = ["python", "-m", "app.services.vercel_hunt_daemon"]
+instances.iad1 = 1
