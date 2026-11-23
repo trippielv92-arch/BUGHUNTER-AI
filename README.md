@@ -14,7 +14,7 @@ chmod +x scripts/*.sh
 ./scripts/run_parrot.sh
 ```
 
-First launch: create the local owner account with a username and password of at least 12 characters, then log in. There is no default account.
+The source launcher defaults to the configured central cloud API and preselects central-server login. Sign in with the cloud account provisioned for your deployment. Uncheck **Connect to central BugHunter AI server** only when you intentionally want the separate local SQLite workspace; that local workspace requires its own owner account (minimum 12-character password). There is no default account.
 
 Run the test suite:
 
