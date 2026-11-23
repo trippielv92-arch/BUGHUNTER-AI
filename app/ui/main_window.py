@@ -487,6 +487,8 @@ class Window(QMainWindow):
    self.remote_project = self.api_client.get_project(project_id)
    self.refresh_remote_test_credentials()
    self.remote_start_hunt_button.setEnabled(True)
+   self.remote_selected_project_title.setText(self.remote_project.get("name", "Selected project"))
+   self.remote_scope_hint.setText("Scope approved. You can now start a cloud hunt for the approved assets.")
    self.remote_project_details.setPlainText(
     f"Project: {self.remote_project.get('name')}\n"
     "Scope approved on the cloud server.\n"
@@ -924,6 +926,8 @@ class Window(QMainWindow):
    )
    self.remote_project_id = None
    self.remote_project = None
+   self.remote_selected_project_title.setText("Select a project")
+   self.remote_scope_hint.setText("Create or select a project, review its official policy, and approve the exact authorized scope before hunting.")
    self.remote_start_hunt_button.setEnabled(False)
    self.statusBar().showMessage(f"Loaded {len(projects)} remote project(s).")
   except APIError as exc:
@@ -948,6 +952,8 @@ class Window(QMainWindow):
    self.remote_project_id = int(project["id"])
    self.remote_project = project
    self.remote_policy_text.clear()
+   self.remote_selected_project_title.setText(project.get("name", "New project"))
+   self.remote_scope_hint.setText("Project created. Review the policy analysis and approve the exact included assets before starting a hunt.")
    self.remote_project_details.setPlainText(
     f"Created remote project #{project['id']}\n"
     f"Name: {project['name']}\n"
@@ -977,6 +983,11 @@ class Window(QMainWindow):
    self.remote_project_id = int(project_id)
    self.remote_project = project
    self.remote_policy_text.clear()
+   self.remote_selected_project_title.setText(project.get("name", "Selected project"))
+   self.remote_scope_hint.setText(
+    "Scope approved. Start a cloud hunt." if project.get("scope_approved")
+    else "Next: review the official programme policy and approve the exact authorized assets."
+   )
    self.remote_start_hunt_button.setEnabled(
     bool(project.get("scope_approved"))
     and str(project.get("status", "")).lower() != "deleted"
