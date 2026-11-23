@@ -12,6 +12,7 @@ from app.database.db import SessionLocal,init_db
 from app.models.entities import User,Project,Finding,ScanCheck,ScopeAsset,Activity,Endpoint,TestCase,Evidence,AssessmentJob,FindingReview
 from app.services.auth import authenticate
 from app.services.api_client import APIClient, APIError
+from app.core.config import API_BASE_URL
 from app.services.workflows import add_endpoint,initialize_test_plan,update_test_case,recommend_endpoint_tests
 from app.services.evidence import add_evidence,list_evidence,verify_evidence, audit_project_evidence
 from app.services.jobs import create_job,create_hunt_job,transition_job,list_jobs,recover_interrupted_jobs,ALLOWED_TRANSITIONS
@@ -61,6 +62,9 @@ class Window(QMainWindow):
   l.addLayout(password_row)
   self.remote_mode_checkbox = QCheckBox("Connect to central BugHunter AI server")
   self.remote_mode_checkbox.setToolTip("Use the authenticated API instead of the local SQLite workspace.")
+  # Prefer cloud mode whenever a remote API URL is explicitly configured.
+  # Users can still uncheck this to use their separate local SQLite workspace.
+  self.remote_mode_checkbox.setChecked(API_BASE_URL.lower().startswith("https://"))
   l.addWidget(self.remote_mode_checkbox)
   b=QPushButton("LOG IN"); b.clicked.connect(self.login); l.addWidget(b)
   self.setCentralWidget(w)

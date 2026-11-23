@@ -9,6 +9,7 @@ on:
       - "config/**"
       - "packaging/**"
       - "scripts/build_deb.sh"
+      - "scripts/run_parrot.sh"
       - "requirements*.txt"
       - "main.py"
       - "pyproject.toml"
@@ -29,10 +30,23 @@ jobs:
           python-version: "3.12"
       - name: Install Debian packaging tools
         run: sudo apt-get update && sudo apt-get install -y dpkg-dev
+      - name: Compile application
+        run: python -m compileall -q app main.py
       - name: Build .deb
         run: |
           chmod +x scripts/build_deb.sh
           ./scripts/build_deb.sh
+      - name: Inspect Debian package
+        run: |
+          PACKAGE="$(find dist -maxdepth 1 -type f -name '*.deb' -print -quit)"
+          test -n "$PACKAGE"
+          dpkg-deb --info "$PACKAGE"
+          mkdir -p /tmp/bughunter-package
+          dpkg-deb --extract "$PACKAGE" /tmp/bughunter-package
+          test -x /tmp/bughunter-package/usr/bin/bughunter-ai
+          test -x /tmp/bughunter-package/usr/bin/bughunter-ai-admin
+          test -f /tmp/bughunter-package/opt/bughunter-ai/app/ui/main_window.py
+          test -f /tmp/bughunter-package/opt/bughunter-ai/requirements-desktop.txt
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
