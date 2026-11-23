@@ -66,7 +66,7 @@ The local worker uses the local SQLite database. For hunts that must continue af
 
 A Docker Compose deployment is now provided for a Linux VPS. It runs PostgreSQL, the authenticated API and one persistent hunt worker as separate services. The API and worker share the same database and durable job queue. PostgreSQL row locking makes each job claim atomic; multi-worker lease/heartbeat recovery is not implemented yet.
 
-See [docs/CLOUD_DEPLOYMENT.md](docs/CLOUD_DEPLOYMENT.md) for setup, secrets, TLS reverse-proxy requirements, desktop connection and account creation. This is deployable infrastructure configuration, not a cloud server that has already been provisioned.
+For a no-VPS option, see [Vercel + Supabase deployment](docs/VERCEL_SUPABASE_DEPLOYMENT.md). It uses the FastAPI function, a Vercel Daemon worker and Supabase PostgreSQL; check beta availability and free-tier quotas before relying on it. The existing [Docker Compose VPS guide](docs/CLOUD_DEPLOYMENT.md) remains available as a fallback. These are deployment configurations, not cloud services that have already been provisioned.
 
 ## What an automated hunt currently does
 
