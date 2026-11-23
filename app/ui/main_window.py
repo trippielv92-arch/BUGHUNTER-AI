@@ -129,302 +129,314 @@ class Window(QMainWindow):
    self.show_login()
    return
 
-  self.setWindowTitle("BugHunter AI — Central Workspace")
-  self.setMinimumSize(900, 650)
+  self.setWindowTitle("BugHunter AI — Hunt Workspace")
+  self.setMinimumSize(980, 700)
+  self.resize(1180, 820)
+  self._build_remote_tools_dialog()
 
   root = QWidget()
-  layout = QVBoxLayout(root)
+  root.setObjectName("workspaceRoot")
+  root_layout = QVBoxLayout(root)
+  root_layout.setContentsMargins(26, 22, 26, 20)
+  root_layout.setSpacing(16)
 
-  header = QLabel("BUGHUNTER AI — CENTRAL WORKSPACE")
-  header.setStyleSheet("font-size:23px;font-weight:800;color:#35a7ff")
-  layout.addWidget(header)
-
-  account_name = self.remote_account.get("username", "Account")
-  layout.addWidget(QLabel(
-   f"Connected account: {account_name}  |  "
-   "Remote API workspace — project data is loaded from the server."
-  ))
-
-  toolbar = QHBoxLayout()
-  refresh = QPushButton("REFRESH PROJECTS")
+  top = QHBoxLayout()
+  brand = QVBoxLayout()
+  title = QLabel("BUGHUNTER AI")
+  title.setStyleSheet("font-size:25px;font-weight:900;letter-spacing:1px;color:#48b4ff")
+  subtitle = QLabel("AUTOMATED BUG BOUNTY RESEARCH")
+  subtitle.setStyleSheet("font-size:10px;font-weight:700;letter-spacing:2px;color:#91a8c7")
+  brand.addWidget(title)
+  brand.addWidget(subtitle)
+  top.addLayout(brand)
+  top.addStretch(1)
+  account = QLabel(f"Signed in as {self.remote_account.get('username', 'Account')}")
+  account.setStyleSheet("color:#a9bdd7;padding:8px")
+  top.addWidget(account)
+  refresh = QPushButton("Refresh")
+  refresh.setStyleSheet("background:#263b58")
   refresh.clicked.connect(self.refresh_remote_projects)
-  toolbar.addWidget(refresh)
-
-  logout = QPushButton("LOG OUT")
+  top.addWidget(refresh)
+  logout = QPushButton("Log out")
   logout.setStyleSheet("background:#475569")
   logout.clicked.connect(self.remote_logout)
-  toolbar.addWidget(logout)
-  layout.addLayout(toolbar)
+  top.addWidget(logout)
+  root_layout.addLayout(top)
 
-  create_box = QGroupBox("CREATE REMOTE PROJECT")
-  create_layout = QFormLayout(create_box)
+  intro = QLabel(
+   "Create a programme project, review its official policy, approve the exact "
+   "authorized scope, then start a cloud hunt. Hunts continue when this app closes."
+  )
+  intro.setWordWrap(True)
+  intro.setStyleSheet("color:#b7c8dc;font-size:13px;padding:4px 0 8px 0")
+  root_layout.addWidget(intro)
+
+  create_box = QGroupBox("1  ·  CREATE PROJECT")
+  create_box.setStyleSheet("QGroupBox{font-size:15px;font-weight:700;border:1px solid #29415f;border-radius:10px;margin-top:10px;padding:14px} QGroupBox::title{subcontrol-origin:margin;left:12px;padding:0 6px}")
+  create_layout = QGridLayout(create_box)
+  create_layout.setHorizontalSpacing(12)
+  create_layout.setVerticalSpacing(8)
   self.remote_project_name = QLineEdit()
-  self.remote_project_name.setPlaceholderText("Project name")
+  self.remote_project_name.setPlaceholderText("Project name (e.g. Example Bug Bounty)")
   self.remote_project_url = QLineEdit()
-  self.remote_project_url.setPlaceholderText("https://programme.example")
-  create_layout.addRow("Project name", self.remote_project_name)
-  create_layout.addRow("Programme URL", self.remote_project_url)
-
-  create_button = QPushButton("CREATE PROJECT ON SERVER")
+  self.remote_project_url.setPlaceholderText("Official programme URL — https://...")
+  create_layout.addWidget(QLabel("Project name"), 0, 0)
+  create_layout.addWidget(self.remote_project_name, 1, 0)
+  create_layout.addWidget(QLabel("Programme URL"), 0, 1)
+  create_layout.addWidget(self.remote_project_url, 1, 1)
+  create_button = QPushButton("CREATE PROJECT")
+  create_button.setMinimumHeight(42)
   create_button.clicked.connect(self.new_remote_project)
-  create_layout.addRow(create_button)
-  layout.addWidget(create_box)
+  create_layout.addWidget(create_button, 1, 2)
+  root_layout.addWidget(create_box)
 
-  lists = QHBoxLayout()
-
-  active_box = QGroupBox("ACTIVE / DRAFT PROJECTS")
-  active_layout = QVBoxLayout(active_box)
+  body = QHBoxLayout()
+  body.setSpacing(14)
+  projects_box = QGroupBox("2  ·  YOUR PROJECTS")
+  projects_box.setStyleSheet(create_box.styleSheet())
+  projects_layout = QVBoxLayout(projects_box)
   self.remote_project_list = QListWidget()
+  self.remote_project_list.setMinimumWidth(285)
+  self.remote_project_list.setMinimumHeight(260)
   self.remote_project_list.itemClicked.connect(self.select_remote_project)
-  active_layout.addWidget(self.remote_project_list)
-
-  active_actions = QHBoxLayout()
-  self.remote_archive_button = QPushButton("ARCHIVE SELECTED")
-  self.remote_archive_button.clicked.connect(self.archive_remote_project)
-  active_actions.addWidget(self.remote_archive_button)
-  active_layout.addLayout(active_actions)
-  lists.addWidget(active_box)
-
-  archived_box = QGroupBox("ARCHIVED PROJECTS")
-  archived_layout = QVBoxLayout(archived_box)
+  projects_layout.addWidget(QLabel("Active projects"))
+  projects_layout.addWidget(self.remote_project_list, 3)
+  projects_layout.addWidget(QLabel("Archived projects"))
   self.remote_archived_list = QListWidget()
+  self.remote_archived_list.setMaximumHeight(105)
   self.remote_archived_list.itemClicked.connect(self.select_remote_archived_project)
-  archived_layout.addWidget(self.remote_archived_list)
+  projects_layout.addWidget(self.remote_archived_list, 1)
+  body.addWidget(projects_box, 1)
 
-  self.remote_restore_button = QPushButton("RESTORE SELECTED")
-  self.remote_restore_button.clicked.connect(self.restore_remote_project)
-  archived_layout.addWidget(self.remote_restore_button)
-  lists.addWidget(archived_box)
-
-  layout.addLayout(lists)
-
-  details_box = QGroupBox("REMOTE PROJECT DETAILS")
-  details_layout = QVBoxLayout(details_box)
+  detail_box = QGroupBox("3  ·  HUNT WORKSPACE")
+  detail_box.setStyleSheet(create_box.styleSheet())
+  detail_layout = QVBoxLayout(detail_box)
+  self.remote_selected_project_title = QLabel("No project selected")
+  self.remote_selected_project_title.setStyleSheet("font-size:20px;font-weight:800;color:#e5edf8")
+  detail_layout.addWidget(self.remote_selected_project_title)
   self.remote_project_details = QTextEdit()
   self.remote_project_details.setReadOnly(True)
   self.remote_project_details.setMinimumHeight(150)
-  self.remote_project_details.setPlaceholderText(
-   "Select a project to view its server-side details."
-  )
-  details_layout.addWidget(self.remote_project_details)
+  self.remote_project_details.setMaximumHeight(205)
+  self.remote_project_details.setPlaceholderText("Create or select a project to see its status.")
+  detail_layout.addWidget(self.remote_project_details)
+
+  action_row = QHBoxLayout()
+  review_button = QPushButton("REVIEW POLICY & SCOPE")
+  review_button.setStyleSheet("background:#334f73")
+  review_button.setMinimumHeight(42)
+  review_button.clicked.connect(self.open_remote_project_tools)
+  action_row.addWidget(review_button)
   self.remote_start_hunt_button = QPushButton("START CLOUD HUNT")
+  self.remote_start_hunt_button.setMinimumHeight(42)
+  self.remote_start_hunt_button.setStyleSheet("background:#12845a;font-size:14px;font-weight:800")
   self.remote_start_hunt_button.setEnabled(False)
   self.remote_start_hunt_button.clicked.connect(self.start_remote_hunt)
-  details_layout.addWidget(self.remote_start_hunt_button)
-  layout.addWidget(details_box)
+  action_row.addWidget(self.remote_start_hunt_button)
+  detail_layout.addLayout(action_row)
 
-  # REMOTE_PROGRAM_POLICY_REVIEW
-  policy_box = QGroupBox("PROGRAM POLICY ANALYSIS AND REVIEW")
-  policy_layout = QVBoxLayout(policy_box)
+  management_row = QHBoxLayout()
+  self.remote_archive_button = QPushButton("Archive project")
+  self.remote_archive_button.setStyleSheet("background:#475569")
+  self.remote_archive_button.clicked.connect(self.archive_remote_project)
+  management_row.addWidget(self.remote_archive_button)
+  self.remote_restore_button = QPushButton("Restore archived")
+  self.remote_restore_button.setStyleSheet("background:#475569")
+  self.remote_restore_button.clicked.connect(self.restore_remote_project)
+  management_row.addWidget(self.remote_restore_button)
+  detail_layout.addLayout(management_row)
 
-  policy_layout.addWidget(QLabel(
-   "Analyze the programme page or paste its official policy text below. "
-   "This does not approve any asset or start target testing."
-  ))
-
-  self.remote_policy_text = QTextEdit()
-  self.remote_policy_text.setPlaceholderText(
-   "Optional: paste the official programme policy text here. "
-   "Leave blank to retrieve the public programme page."
+  self.remote_scope_hint = QLabel(
+   "Next step: review the programme policy. No target is tested until you explicitly approve scope."
   )
-  self.remote_policy_text.setMaximumHeight(125)
+  self.remote_scope_hint.setWordWrap(True)
+  self.remote_scope_hint.setStyleSheet("color:#e9c46a;padding:8px;background:#18263a;border-radius:6px")
+  detail_layout.addWidget(self.remote_scope_hint)
+  detail_layout.addStretch(1)
+  body.addWidget(detail_box, 2)
+  root_layout.addLayout(body, 1)
+
+  footer = QLabel(
+   "Cloud execution  ·  Persistent background worker  ·  Human-approved scope  ·  "
+   "Evidence-backed results"
+  )
+  footer.setStyleSheet("color:#7188a6;font-size:11px;padding-top:5px")
+  root_layout.addWidget(footer)
+
+  self.setCentralWidget(root)
+  self.statusBar().showMessage("Connected to central BugHunter AI API.")
+  self.refresh_remote_projects()
+
+ def _build_remote_tools_dialog(self):
+  dialog = QDialog(self)
+  dialog.setWindowTitle("Programme policy, scope & test accounts")
+  dialog.setMinimumSize(900, 680)
+  dialog.resize(1040, 760)
+  outer = QVBoxLayout(dialog)
+  intro = QLabel(
+   "Review policy evidence and approve only assets explicitly authorized by the programme. "
+   "Newly discovered hosts remain unapproved until you review them."
+  )
+  intro.setWordWrap(True)
+  intro.setStyleSheet("color:#b7c8dc;padding:6px")
+  outer.addWidget(intro)
+  tabs = QTabWidget()
+  outer.addWidget(tabs, 1)
+
+  policy_page = QWidget()
+  policy_layout = QVBoxLayout(policy_page)
+  policy_layout.addWidget(QLabel("Optional policy text for private or inaccessible programmes:"))
+  self.remote_policy_text = QTextEdit()
+  self.remote_policy_text.setPlaceholderText("Paste official programme policy text here. Leave blank to retrieve the public programme page.")
+  self.remote_policy_text.setMaximumHeight(115)
   policy_layout.addWidget(self.remote_policy_text)
-
   policy_actions = QHBoxLayout()
-
-  analyze_policy_button = QPushButton("ANALYZE PROGRAM POLICY")
-  analyze_policy_button.clicked.connect(self.analyze_remote_program)
-  policy_actions.addWidget(analyze_policy_button)
-
-  history_button = QPushButton("VIEW POLICY VERSION HISTORY")
+  analyze_button = QPushButton("ANALYZE PROGRAM POLICY")
+  analyze_button.clicked.connect(self.analyze_remote_program)
+  policy_actions.addWidget(analyze_button)
+  history_button = QPushButton("POLICY VERSION HISTORY")
   history_button.setStyleSheet("background:#475569")
   history_button.clicked.connect(self.view_remote_policy_history)
   policy_actions.addWidget(history_button)
-
+  propose_button = QPushButton("PROPOSE CLEAR IN-SCOPE HOSTS")
+  propose_button.clicked.connect(self.propose_clear_remote_hostnames)
+  policy_actions.addWidget(propose_button)
   policy_layout.addLayout(policy_actions)
-
-  self.remote_policy_status = QLabel(
-   "Select a remote project before analyzing its programme policy."
-  )
+  self.remote_policy_status = QLabel("Select a project, then analyze its official programme policy.")
   self.remote_policy_status.setWordWrap(True)
-  self.remote_policy_status.setStyleSheet("color:#f0c674;padding:5px")
+  self.remote_policy_status.setStyleSheet("color:#e9c46a;padding:6px")
   policy_layout.addWidget(self.remote_policy_status)
-
   self.remote_policy_assets = QTableWidget(0, 6)
-  self.remote_policy_assets.setHorizontalHeaderLabels([
-   "ID", "Candidate", "Policy classification",
-   "Confidence", "Human review", "Type"
-  ])
+  self.remote_policy_assets.setHorizontalHeaderLabels(["ID", "Candidate", "Classification", "Confidence", "Review", "Type"])
   self.remote_policy_assets.setSelectionBehavior(QTableWidget.SelectRows)
   self.remote_policy_assets.setSelectionMode(QTableWidget.SingleSelection)
   self.remote_policy_assets.setEditTriggers(QTableWidget.NoEditTriggers)
-  self.remote_policy_assets.horizontalHeader().setSectionResizeMode(
-   QHeaderView.ResizeToContents
-  )
+  self.remote_policy_assets.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
   self.remote_policy_assets.horizontalHeader().setStretchLastSection(True)
-  self.remote_policy_assets.itemSelectionChanged.connect(
-   self.show_remote_policy_asset_evidence
-  )
-  policy_layout.addWidget(self.remote_policy_assets)
-
+  self.remote_policy_assets.itemSelectionChanged.connect(self.show_remote_policy_asset_evidence)
+  policy_layout.addWidget(self.remote_policy_assets, 1)
   self.remote_policy_asset_details = QTextEdit()
   self.remote_policy_asset_details.setReadOnly(True)
-  self.remote_policy_asset_details.setMaximumHeight(130)
-  self.remote_policy_asset_details.setPlaceholderText(
-   "Select a candidate to inspect its original policy evidence."
-  )
+  self.remote_policy_asset_details.setMaximumHeight(105)
+  self.remote_policy_asset_details.setPlaceholderText("Select a candidate to inspect its original policy evidence.")
   policy_layout.addWidget(self.remote_policy_asset_details)
-
   self.remote_policy_review_note = QLineEdit()
-  self.remote_policy_review_note.setPlaceholderText(
-   "Optional review note: reason, policy section, or verification context"
-  )
+  self.remote_policy_review_note.setPlaceholderText("Optional review note")
   policy_layout.addWidget(self.remote_policy_review_note)
+  review_row = QHBoxLayout()
+  for label, decision in [("Accept candidate", "accepted"), ("Reject candidate", "rejected"), ("Defer candidate", "deferred")]:
+   button = QPushButton(label)
+   button.clicked.connect(lambda checked=False, value=decision: self.review_remote_policy_asset(value))
+   review_row.addWidget(button)
+  add_button = QPushButton("ADD ACCEPTED TO PROPOSED SCOPE")
+  add_button.setStyleSheet("background:#475569")
+  add_button.clicked.connect(self.add_remote_candidate_to_scope)
+  review_row.addWidget(add_button)
+  approve_button = QPushButton("APPROVE EXACT SCOPE")
+  approve_button.setStyleSheet("background:#12845a")
+  approve_button.clicked.connect(self.approve_remote_scope)
+  review_row.addWidget(approve_button)
+  policy_layout.addLayout(review_row)
+  tabs.addTab(policy_page, "Policy & scope")
 
-  review_actions = QHBoxLayout()
-  for label, decision in [
-   ("ACCEPT CANDIDATE", "accepted"),
-   ("REJECT CANDIDATE", "rejected"),
-   ("DEFER CANDIDATE", "deferred"),
-  ]:
-   action = QPushButton(label)
-   action.clicked.connect(
-    lambda checked=False, value=decision:
-     self.review_remote_policy_asset(value)
-   )
-   review_actions.addWidget(action)
-
-  propose_scope_button = QPushButton("AUTO-PROPOSE CLEAR IN-SCOPE HOSTS")
-  propose_scope_button.setStyleSheet("background:#1d4ed8")
-  propose_scope_button.clicked.connect(self.propose_clear_remote_hostnames)
-  review_actions.addWidget(propose_scope_button)
-
-  add_scope_button = QPushButton("ADD ACCEPTED TO PROPOSED SCOPE")
-  add_scope_button.setStyleSheet("background:#475569")
-  add_scope_button.clicked.connect(self.add_remote_candidate_to_scope)
-  review_actions.addWidget(add_scope_button)
-
-  approve_scope_button = QPushButton("APPROVE REMOTE SCOPE")
-  approve_scope_button.setStyleSheet("background:#15803d")
-  approve_scope_button.clicked.connect(self.approve_remote_scope)
-  review_actions.addWidget(approve_scope_button)
-  policy_layout.addLayout(review_actions)
-
-  layout.addWidget(policy_box)
-
-  # REMOTE_TEST_ACCOUNT_PROFILES
-  credential_box = QGroupBox("CONTROLLED TEST-ACCOUNT CREDENTIALS")
-  credential_layout = QVBoxLayout(credential_box)
-  credential_layout.addWidget(QLabel(
-   "Optional: add bearer tokens or session Cookie headers for researcher-owned "
-   "test accounts. Secrets are encrypted on the server and are never shown "
-   "again. The server must have BUGHUNTER_CREDENTIAL_ENCRYPTION_KEY configured."
+  credentials_page = QWidget()
+  credentials_layout = QVBoxLayout(credentials_page)
+  credentials_layout.addWidget(QLabel(
+   "Optional researcher-owned test accounts. Secrets are write-only and encrypted on the server. "
+   "Only use accounts and hosts you are authorized to test."
   ))
   credential_form = QFormLayout()
   self.remote_credential_host = QComboBox()
   self.remote_credential_name = QLineEdit()
-  self.remote_credential_name.setPlaceholderText("e.g. account-owner")
+  self.remote_credential_name.setPlaceholderText("e.g. owner-account")
   self.remote_credential_role = QLineEdit()
-  self.remote_credential_role.setPlaceholderText("e.g. owner / standard / support")
+  self.remote_credential_role.setPlaceholderText("e.g. owner / standard")
   self.remote_credential_type = QComboBox()
   self.remote_credential_type.addItem("Bearer token", "bearer")
   self.remote_credential_type.addItem("Cookie header", "cookie")
   self.remote_credential_secret = QLineEdit()
   self.remote_credential_secret.setEchoMode(QLineEdit.Password)
-  self.remote_credential_secret.setPlaceholderText(
-   "Paste a short-lived test-account token or Cookie header"
-  )
+  self.remote_credential_secret.setPlaceholderText("Short-lived token or Cookie header")
   credential_form.addRow("Approved host", self.remote_credential_host)
   credential_form.addRow("Profile name", self.remote_credential_name)
   credential_form.addRow("Account role", self.remote_credential_role)
   credential_form.addRow("Credential type", self.remote_credential_type)
-  credential_form.addRow("Secret (write-only)", self.remote_credential_secret)
-  credential_layout.addLayout(credential_form)
+  credential_form.addRow("Secret", self.remote_credential_secret)
+  credentials_layout.addLayout(credential_form)
   credential_actions = QHBoxLayout()
-  add_credential_button = QPushButton("SAVE ENCRYPTED TEST ACCOUNT")
-  add_credential_button.clicked.connect(self.add_remote_test_credential)
-  credential_actions.addWidget(add_credential_button)
-  refresh_credentials_button = QPushButton("REFRESH PROFILES")
-  refresh_credentials_button.setStyleSheet("background:#475569")
-  refresh_credentials_button.clicked.connect(
-   self.refresh_remote_test_credentials
-  )
-  credential_actions.addWidget(refresh_credentials_button)
-  delete_credential_button = QPushButton("DELETE SELECTED")
-  delete_credential_button.setStyleSheet("background:#7f1d1d")
-  delete_credential_button.clicked.connect(
-   self.delete_remote_test_credential
-  )
-  credential_actions.addWidget(delete_credential_button)
-  credential_layout.addLayout(credential_actions)
+  save_credential = QPushButton("SAVE ENCRYPTED TEST ACCOUNT")
+  save_credential.clicked.connect(self.add_remote_test_credential)
+  credential_actions.addWidget(save_credential)
+  refresh_credential = QPushButton("Refresh profiles")
+  refresh_credential.setStyleSheet("background:#475569")
+  refresh_credential.clicked.connect(self.refresh_remote_test_credentials)
+  credential_actions.addWidget(refresh_credential)
+  delete_credential = QPushButton("Delete selected")
+  delete_credential.setStyleSheet("background:#7f1d1d")
+  delete_credential.clicked.connect(self.delete_remote_test_credential)
+  credential_actions.addWidget(delete_credential)
+  credentials_layout.addLayout(credential_actions)
   self.remote_credential_profiles = QListWidget()
-  self.remote_credential_profiles.setMaximumHeight(105)
-  credential_layout.addWidget(self.remote_credential_profiles)
-  layout.addWidget(credential_box)
+  credentials_layout.addWidget(self.remote_credential_profiles, 1)
+  tabs.addTab(credentials_page, "Test accounts")
 
-  # RESEARCHER_OWNED_RESOURCE_REGISTRY
-  owned_box = QGroupBox("RESEARCHER-OWNED API RESOURCE REGISTRY")
-  owned_layout = QVBoxLayout(owned_box)
+  owned_page = QWidget()
+  owned_layout = QVBoxLayout(owned_page)
   owned_layout.addWidget(QLabel(
-   "Register only records created for your own test accounts. The resource "
-   "identifier is encrypted on the server and never displayed again. This is "
-   "a researcher ownership attestation, not an automatic ownership proof. "
-   "Do not include the raw resource ID or credentials in the note. "
-   "Registration does not send any request to the resource."
+   "Register synthetic records created by your own test accounts. Registration does not send requests."
   ))
   owned_form = QFormLayout()
   self.remote_owned_host = QComboBox()
   self.remote_owned_owner_profile = QComboBox()
   self.remote_owned_endpoint = QLineEdit()
-  self.remote_owned_endpoint.setPlaceholderText(
-   "https://approved.example/api/orders/{id}"
-  )
+  self.remote_owned_endpoint.setPlaceholderText("https://approved.example/api/items/{id}")
   self.remote_owned_reference = QLineEdit()
   self.remote_owned_reference.setEchoMode(QLineEdit.Password)
-  self.remote_owned_reference.setPlaceholderText(
-   "Exact synthetic/test record identifier"
-  )
+  self.remote_owned_reference.setPlaceholderText("Synthetic test-record identifier")
   self.remote_owned_attestation = QLineEdit()
-  self.remote_owned_attestation.setPlaceholderText(
-   "Explain how the owner test account accessed this record"
-  )
+  self.remote_owned_attestation.setPlaceholderText("How the owner test account accessed this record")
   owned_form.addRow("Approved host", self.remote_owned_host)
   owned_form.addRow("Owner test account", self.remote_owned_owner_profile)
   owned_form.addRow("HTTPS endpoint template", self.remote_owned_endpoint)
-  owned_form.addRow("Resource identifier (write-only)", self.remote_owned_reference)
-  owned_form.addRow("Ownership attestation", self.remote_owned_attestation)
+  owned_form.addRow("Record identifier", self.remote_owned_reference)
+  owned_form.addRow("Ownership note", self.remote_owned_attestation)
   owned_layout.addLayout(owned_form)
   owned_actions = QHBoxLayout()
-  save_owned_button = QPushButton("REGISTER OWNED TEST RESOURCE")
-  save_owned_button.clicked.connect(self.add_remote_owned_resource)
-  owned_actions.addWidget(save_owned_button)
-  refresh_owned_button = QPushButton("REFRESH RESOURCES")
-  refresh_owned_button.setStyleSheet("background:#475569")
-  refresh_owned_button.clicked.connect(self.refresh_remote_owned_resources)
-  owned_actions.addWidget(refresh_owned_button)
-  delete_owned_button = QPushButton("DELETE SELECTED")
-  delete_owned_button.setStyleSheet("background:#7f1d1d")
-  delete_owned_button.clicked.connect(self.delete_remote_owned_resource)
-  owned_actions.addWidget(delete_owned_button)
+  save_owned = QPushButton("REGISTER OWNED TEST RESOURCE")
+  save_owned.clicked.connect(self.add_remote_owned_resource)
+  owned_actions.addWidget(save_owned)
+  refresh_owned = QPushButton("Refresh resources")
+  refresh_owned.setStyleSheet("background:#475569")
+  refresh_owned.clicked.connect(self.refresh_remote_owned_resources)
+  owned_actions.addWidget(refresh_owned)
+  delete_owned = QPushButton("Delete selected")
+  delete_owned.setStyleSheet("background:#7f1d1d")
+  delete_owned.clicked.connect(self.delete_remote_owned_resource)
+  owned_actions.addWidget(delete_owned)
   owned_layout.addLayout(owned_actions)
   self.remote_owned_resources = QListWidget()
-  self.remote_owned_resources.setMaximumHeight(125)
-  owned_layout.addWidget(self.remote_owned_resources)
-  layout.addWidget(owned_box)
+  owned_layout.addWidget(self.remote_owned_resources, 1)
+  tabs.addTab(owned_page, "Owned test data")
 
-  notice = QLabel(
-   "Cloud hunts run on explicitly approved assets. The worker performs passive discovery, "
-   "bounded HTTPS GET inventory, anonymous API access checks and optional encrypted "
-   "test-account GET comparisons. IDOR, injection, SSRF, business-logic verification "
-   "and remote evidence/report screens are still under development."
-  )
-  notice.setWordWrap(True)
-  notice.setStyleSheet("color:#f0c674;padding:8px")
-  layout.addWidget(notice)
+  close_row = QHBoxLayout()
+  close_row.addStretch(1)
+  close_button = QPushButton("CLOSE")
+  close_button.setStyleSheet("background:#475569")
+  close_button.clicked.connect(dialog.accept)
+  close_row.addWidget(close_button)
+  outer.addLayout(close_row)
+  self.remote_tools_dialog = dialog
 
-  self.setCentralWidget(root)
-  self.statusBar().showMessage("Connected to central BugHunter AI API.")
-  self.refresh_remote_projects()
+ def open_remote_project_tools(self):
+  if not self.remote_project_id or not self.remote_project:
+   QMessageBox.information(self, "Project tools", "Create or select a project first.")
+   return
+  self.remote_tools_dialog.show()
+  self.remote_tools_dialog.raise_()
+  self.remote_tools_dialog.activateWindow()
+  self.refresh_remote_policy_assets()
+  self.refresh_remote_test_credentials()
+  self.refresh_remote_owned_resources()
 
  def approve_remote_scope(self):
   project_id = self.remote_project_id
@@ -475,6 +487,8 @@ class Window(QMainWindow):
    self.remote_project = self.api_client.get_project(project_id)
    self.refresh_remote_test_credentials()
    self.remote_start_hunt_button.setEnabled(True)
+   self.remote_selected_project_title.setText(self.remote_project.get("name", "Selected project"))
+   self.remote_scope_hint.setText("Scope approved. You can now start a cloud hunt for the approved assets.")
    self.remote_project_details.setPlainText(
     f"Project: {self.remote_project.get('name')}\n"
     "Scope approved on the cloud server.\n"
@@ -912,6 +926,8 @@ class Window(QMainWindow):
    )
    self.remote_project_id = None
    self.remote_project = None
+   self.remote_selected_project_title.setText("Select a project")
+   self.remote_scope_hint.setText("Create or select a project, review its official policy, and approve the exact authorized scope before hunting.")
    self.remote_start_hunt_button.setEnabled(False)
    self.statusBar().showMessage(f"Loaded {len(projects)} remote project(s).")
   except APIError as exc:
@@ -936,6 +952,8 @@ class Window(QMainWindow):
    self.remote_project_id = int(project["id"])
    self.remote_project = project
    self.remote_policy_text.clear()
+   self.remote_selected_project_title.setText(project.get("name", "New project"))
+   self.remote_scope_hint.setText("Project created. Review the policy analysis and approve the exact included assets before starting a hunt.")
    self.remote_project_details.setPlainText(
     f"Created remote project #{project['id']}\n"
     f"Name: {project['name']}\n"
@@ -965,6 +983,11 @@ class Window(QMainWindow):
    self.remote_project_id = int(project_id)
    self.remote_project = project
    self.remote_policy_text.clear()
+   self.remote_selected_project_title.setText(project.get("name", "Selected project"))
+   self.remote_scope_hint.setText(
+    "Scope approved. Start a cloud hunt." if project.get("scope_approved")
+    else "Next: review the official programme policy and approve the exact authorized assets."
+   )
    self.remote_start_hunt_button.setEnabled(
     bool(project.get("scope_approved"))
     and str(project.get("status", "")).lower() != "deleted"
