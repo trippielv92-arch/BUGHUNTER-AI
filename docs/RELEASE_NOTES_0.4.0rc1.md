@@ -26,9 +26,9 @@ This candidate hardens the existing cloud-connected Parrot desktop architecture.
 ## Validation status
 
 - Python compilation: passed.
-- Full automated test suite: passed in GitHub Actions for the source commit used to build this candidate.
-- Debian package build: passed.
-- Debian package metadata and required launcher files: inspected successfully.
+- Source-code validation: compilation and the full automated test suite passed in GitHub Actions on commit `396bd6a` (185 tests passed).
+- Debian package build: passed for that same source commit; the resulting artifact was inspected and is version `0.3.3`.
+- The `0.4.0rc1` metadata bump and its new version assertion were added after that successful run. A new CI package build for the `0.4.0rc1` version has not yet been verified, so no `0.4.0rc1` installer is being published from that earlier artifact.
 - Production API/worker runtime smoke test: not verified.
 - Parrot installation and desktop launch: not verified.
 - Vercel preview/production deployment: blocked because Vercel denied pushing the `daemon.hunt-worker` image to the project's Container Registry. The project owner must grant/create the registry repository in Vercel's Sandboxes → Container Registry settings, then redeploy.
