@@ -1,6 +1,6 @@
 # BugHunter AI 0.4.0 Release Candidate 1
 
-This candidate hardens the existing cloud-connected Parrot desktop architecture. It is not yet a production-ready final release: deployment/runtime verification remains blocked by the Vercel worker container registry permission issue described below.
+This candidate hardens the existing cloud-connected Parrot desktop architecture. It is not yet a production-ready final release: production API and persistent-worker deployment/runtime verification remain blocked by the Vercel Container Registry image quota described below.
 
 ## Included
 
@@ -25,17 +25,39 @@ This candidate hardens the existing cloud-connected Parrot desktop architecture.
 
 ## Validation status
 
-- Python compilation: passed.
-- Source compilation: passed in GitHub Actions on commit `984b3e1`.
-- Full automated test suite: **187 passed** in GitHub Actions on commit `984b3e1`.
-- Debian package build: passed for version `0.4.0rc1` on the same commit.
-- Debian package inspection: passed, including launcher/runtime files and checks that no CI-generated `__pycache__`, `.pyc` or `.pyo` files are shipped.
-- The verified CI artifact is `bughunter-ai_0.4.0rc1_all.deb`; its SHA-256 is recorded in the release handoff.
+- Python compilation: passed on current PR head `0731bc05045f9515e52e8b56b22a6c8e0565420d`.
+- Full automated test suite: **187 passed, 3 warnings** in GitHub Actions on the current PR head.
+- Python validation workflow: run [45453961257](https://github.com/trippielv92-arch/BUGHUNTER-AI/actions/runs/45453961257), passed.
+- Debian build and package inspection workflow: run [45453961393](https://github.com/trippielv92-arch/BUGHUNTER-AI/actions/runs/45453961393), passed.
+- Debian package: `bughunter-ai_0.4.0rc1_all.deb`, version `0.4.0rc1`, architecture `all`.
+- GitHub Actions artifact: [BugHunter-AI-Parrot-DEB](https://github.com/trippielv92-arch/BUGHUNTER-AI/actions/runs/45453961393), artifact ID `14947594772`, available until 2026-12-24.
+- SHA-256 of the uploaded **artifact ZIP** (not the inner .deb): `7d595cbf777968c1a2c4310d692dce5fcb47caada94d3f121aed91c55b6edf8`. A separate SHA-256 for the .deb itself was not emitted in the inspected CI log and is not asserted here.
+- Package inspection confirmed the expected launcher/runtime files and no CI-generated `__pycache__`, `.pyc` or `.pyo` files.
 - Production API/worker runtime smoke test: not verified.
 - Parrot installation and desktop launch: not verified.
-- Vercel preview/production deployment: blocked because Vercel denied pushing the `daemon.hunt-worker` image to the project's Container Registry. The project owner must grant/create the registry repository in Vercel's Sandboxes → Container Registry settings, then redeploy.
-- Supabase inspection: project healthy; all 15 public application tables have RLS enabled; `anon` and `authenticated` have zero SELECT/INSERT privileges across those tables. No migration history is recorded, so the API/worker startup path still needs live verification against the current schema.
+
+## Vercel deployment blocker
+
+The latest production deployment failed while pushing the worker image to `daemon.hunt-worker`. The Vercel build log shows that the image built successfully, but the registry rejected the manifest because **the repository has reached the maximum allowed number of images**. This is an image-capacity/quota failure, not a Python build failure.
+
+The project owner must inspect the repository's images in Vercel Container Registry and decide which obsolete images can safely be removed. Vercel documents these commands:
+
+```bash
+vercel vcr image ls daemon.hunt-worker --project bughunter-ai
+vercel vcr image delete daemon.hunt-worker IMAGE_ID --project bughunter-ai
+```
+
+Image deletion is permanent. Do not delete the repository or any image until its tags and use are checked. After safely freeing capacity, retry the deployment and verify the API and worker startup.
+
+## Supabase inspection — 2026-11-24
+
+- Supabase project reports `ACTIVE_HEALTHY`.
+- All 15 public application tables have RLS enabled.
+- `anon` and `authenticated` have zero SELECT/INSERT privileges across those tables, consistent with the private API-only database architecture.
+- No migration history is recorded. Do not add broad public RLS policies merely to silence the informational RLS-without-policy advisory.
+- Four informational unindexed foreign-key notices were observed on `activities`, `findings`, `scan_checks` and `scope_assets`. They were not changed because this release does not require production DDL changes.
+- API/worker startup against this exact live schema and verification of the intended private database connection still need to be completed.
 
 ## Release decision
 
-Do not remove the existing installation or label this candidate stable until production API and worker startup, account isolation, and Parrot installation/launch have been verified.
+Keep this as a release candidate. Do not remove the existing installation or label it stable until the production API and worker start successfully, account isolation is verified against the deployed environment, and the Parrot installation/desktop launch smoke test passes.
