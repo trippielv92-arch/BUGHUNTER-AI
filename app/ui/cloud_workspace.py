@@ -3,6 +3,8 @@
 The desktop is a client only: all project state and hunt results are loaded
 from the authenticated central API. The persistent worker is independent.
 """
+from pathlib import Path
+
 from PySide6.QtCore import Qt, QTimer, QSettings
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QLineEdit,
@@ -619,16 +621,42 @@ class CloudWorkspace(QWidget):
                 latest_hunt_id = max(int(j.get("id", 0)) for j in hunt_jobs)
                 notification_key = f"reports/notified/project_{project_id}"
                 previously_notified = str(self._settings.value(notification_key, ""))
-                if previously_notified != str(latest_hunt_id):
-                    self._settings.setValue(notification_key, str(latest_hunt_id))
+                failed_marker = f"failed:{latest_hunt_id}"
+                if previously_notified not in {str(latest_hunt_id), failed_marker}:
                     failed = sum(str(j.get("status", "")).lower() != "completed" for j in hunt_jobs)
-                    message = (
-                        "Your BugHunter AI hunt has finished. The report is ready to generate "
-                        "in your chosen format; select a format and download it below."
-                    )
-                    if failed:
-                        message += f" {failed} job(s) ended without a completed status; the report will identify partial coverage."
-                    QMessageBox.information(self, "Hunt finished — report ready", message)
+                    try:
+                        report_dir = Path.home() / "Downloads"
+                        report_dir.mkdir(parents=True, exist_ok=True)
+                        safe_name = "".join(
+                            char if char.isalnum() or char in "-_" else "_"
+                            for char in str(project.get("name") or "bughunter-project")
+                        ).strip("_") or "bughunter-project"
+                        report_path = report_dir / (
+                            f"{safe_name}_hunt_{latest_hunt_id}_security_report.pdf"
+                        )
+                        report_bytes = self.client.download_report(project_id, "pdf")
+                        report_path.write_bytes(report_bytes)
+                        self._settings.setValue(notification_key, str(latest_hunt_id))
+                        message = (
+                            "Hunt finished. I generated your first-person PDF report and saved it to:\\n"
+                            f"{report_path}\\n\\n"
+                            "You can also choose Word, HTML, Markdown or JSON below."
+                        )
+                        if failed:
+                            message += f"\\n\\n{failed} job(s) did not complete successfully; the report marks the coverage as partial."
+                        QMessageBox.information(self, "Hunt finished — report ready", message)
+                    except Exception as report_error:
+                        self._settings.setValue(notification_key, failed_marker)
+                        self.remote_stage_status.setText(
+                            "HUNT FINISHED — automatic PDF generation failed. Use DOWNLOAD REPORT to retry."
+                        )
+                        QMessageBox.warning(
+                            self,
+                            "Hunt finished — report needs retry",
+                            "The hunt has ended, but the automatic PDF could not be saved. "
+                            "Use DOWNLOAD REPORT to generate it again.\\n\\n"
+                            f"{type(report_error).__name__}: {report_error}",
+                        )
                 self.remote_stage_status.setText(
                     "HUNT FINISHED — your report is ready to download. "
                     "The report separates confirmed findings, potential leads and incomplete checks."
