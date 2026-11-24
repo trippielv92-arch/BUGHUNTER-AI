@@ -219,6 +219,7 @@ class Window(QMainWindow):
    "remote_restore_button", "remote_analyze_button",
    "remote_report_format", "remote_download_report_button",
    "remote_stage_status", "remote_create_project_button",
+   "remote_workspace_tabs", "remote_findings_table",
   ):
    setattr(self, name, getattr(self.cloud_workspace, name))
 
