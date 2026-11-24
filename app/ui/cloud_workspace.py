@@ -84,6 +84,7 @@ class CloudWorkspace(QWidget):
         outer.addLayout(header)
 
         create_box = QGroupBox("NEW PROGRAMME PROJECT")
+        self.remote_create_project_box = create_box
         create_grid = QGridLayout(create_box)
         self.remote_project_name = QLineEdit()
         self.remote_project_name.setPlaceholderText("Project name — e.g. Example Bug Bounty")
@@ -98,12 +99,6 @@ class CloudWorkspace(QWidget):
         create.clicked.connect(self.host_window.new_remote_project)
         create_grid.addWidget(create, 1, 2)
         self.remote_create_project_button = create
-        self.remote_analyze_button = QPushButton("ANALYZE PROJECT  →")
-        self.remote_analyze_button.setMinimumHeight(42)
-        self.remote_analyze_button.setStyleSheet("background:#0d8b70")
-        self.remote_analyze_button.setEnabled(False)
-        self.remote_analyze_button.clicked.connect(self.host_window.analyze_remote_program)
-        create_grid.addWidget(self.remote_analyze_button, 1, 3)
         create_grid.setColumnStretch(0, 1)
         create_grid.setColumnStretch(1, 2)
         outer.addWidget(create_box)
@@ -158,6 +153,13 @@ class CloudWorkspace(QWidget):
         )
         actions.addWidget(self.remote_scope_hint, 1)
         self.remote_scope_hint.hide()
+        self.remote_analyze_button = QPushButton("ANALYZE PROJECT  →")
+        self.remote_analyze_button.setStyleSheet("background:#0d8b70")
+        self.remote_analyze_button.setMinimumHeight(42)
+        self.remote_analyze_button.setEnabled(False)
+        self.remote_analyze_button.hide()
+        self.remote_analyze_button.clicked.connect(self.host_window.analyze_remote_program)
+        actions.addWidget(self.remote_analyze_button)
         policy = QPushButton("POLICY & SCOPE")
         policy.setStyleSheet("background:#31577e")
         policy.setMinimumHeight(42)
@@ -184,6 +186,12 @@ class CloudWorkspace(QWidget):
         self.remote_download_report_button.hide()
         actions.addWidget(self.remote_report_format)
         actions.addWidget(self.remote_download_report_button)
+        self.remote_new_project_button = QPushButton("＋  NEW PROJECT")
+        self.remote_new_project_button.setStyleSheet("background:#31577e")
+        self.remote_new_project_button.setMinimumHeight(42)
+        self.remote_new_project_button.clicked.connect(self.host_window.begin_new_remote_project)
+        self.remote_new_project_button.hide()
+        actions.addWidget(self.remote_new_project_button)
         work_layout.addLayout(actions)
 
         self.remote_workspace_tabs = QTabWidget()
@@ -431,6 +439,7 @@ class CloudWorkspace(QWidget):
                 self.remote_metric_values[key].setText(str(value))
 
             self.host_window.remote_project = project
+            self.remote_create_project_box.hide()
             self.remote_selected_project_title.show()
             self.remote_stage_status.show()
             self.remote_selected_project_title.setText(
@@ -583,7 +592,10 @@ class CloudWorkspace(QWidget):
             self.remote_restore_button.setEnabled(archived)
             has_policy = bool(latest_policy)
             self.remote_analyze_button.setEnabled(
-                not archived and bool(project.get("programme_url")) and not active_jobs
+                not archived and bool(project.get("programme_url")) and not active_jobs and not hunt_jobs
+            )
+            self.remote_analyze_button.setVisible(
+                not archived and not ready and not active_jobs and not hunt_jobs
             )
             self.remote_analyze_button.setText(
                 "RE-ANALYZE POLICY" if has_policy else "ANALYZE PROJECT  →"
@@ -613,6 +625,7 @@ class CloudWorkspace(QWidget):
             )
             self.remote_report_format.setVisible(hunt_finished)
             self.remote_download_report_button.setVisible(hunt_finished)
+            self.remote_new_project_button.setVisible(hunt_finished or archived)
             if hunt_finished:
                 latest_hunt_id = max(int(j.get("id", 0)) for j in hunt_jobs)
                 notification_key = f"reports/notified/project_{project_id}"
@@ -703,6 +716,9 @@ class CloudWorkspace(QWidget):
         self.remote_report_format.hide()
         self.remote_download_report_button.hide()
         self.remote_selected_project_title.hide()
+        self.remote_create_project_box.show()
+        self.remote_analyze_button.hide()
+        self.remote_new_project_button.hide()
         self.remote_stage_status.setText(
             "Create a project with its official programme URL and name, then analyze the programme policy."
         )
