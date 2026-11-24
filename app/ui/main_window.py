@@ -921,38 +921,43 @@ class Window(QMainWindow):
   download_dir.mkdir(parents=True, exist_ok=True)
   destination, _ = QFileDialog.getSaveFileName(
    self, "Download security assessment report",
-   str(download_dir / filename),
-   "All files (*)",
+   str(download_dir / filename), "All files (*)",
   )
   if not destination:
    return
+  self._report_destination = destination
+  self._report_project_id = int(self.remote_project_id)
+  self.remote_download_report_button.setEnabled(False)
+  self.remote_stage_status.setText("Generating and downloading the report in the background…")
+  self._manual_report_thread = RemoteAPICallThread(
+   self.api_client.base_url, self.api_client._token,
+   "download_report", (self.remote_project_id, fmt), {}, self,
+  )
+  self._manual_report_thread.succeeded.connect(self._remote_report_downloaded)
+  self._manual_report_thread.failed.connect(self._remote_report_download_failed)
+  self._manual_report_thread.finished.connect(
+   lambda: self.remote_download_report_button.setEnabled(True)
+  )
+  self._manual_report_thread.start()
+
+ def _remote_report_downloaded(self, payload):
   try:
-   payload = self.api_client.download_report(self.remote_project_id, fmt)
-   Path(destination).write_bytes(payload)
+   Path(self._report_destination).write_bytes(payload)
    workspace = getattr(self, "cloud_workspace", None)
    if workspace is not None:
-    try:
-     jobs = self.api_client.list_project_resource(self.remote_project_id, "jobs")
-     hunt_jobs = [job for job in jobs if job.get("job_type") == "Automated hunt"]
-     if hunt_jobs:
-      latest_hunt_id = max(int(job.get("id", 0)) for job in hunt_jobs)
-      workspace._settings.setValue(
-       f"reports/notified/project_{self.remote_project_id}", str(latest_hunt_id)
-      )
-    except APIError:
-     pass
     workspace.remote_stage_status.setText(
      "HUNT FINISHED — report downloaded. You can download it again in another format."
     )
    QMessageBox.information(
     self, "Report downloaded",
-    f"Your first-person security report was saved to:\n{destination}\n\n"
+    f"Your first-person security report was saved to:\n{self._report_destination}\n\n"
     "Review all findings and evidence before submitting it to the programme."
    )
-  except APIError as exc:
-   QMessageBox.warning(self, "Report download", str(exc))
   except Exception as exc:
    QMessageBox.warning(self, "Report download", f"Could not save report: {exc}")
+
+ def _remote_report_download_failed(self, message):
+  QMessageBox.warning(self, "Report download", message)
 
  def refresh_remote_projects(self):
   workspace = getattr(self, "cloud_workspace", None)
