@@ -944,9 +944,11 @@ class Window(QMainWindow):
   project_name = (self.remote_project or {}).get("name", "bughunter-project")
   safe_name = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in project_name).strip("_")
   filename = f"{safe_name or 'bughunter-project'}_security_report.{extension}"
+  download_dir = Path.home() / "Downloads"
+  download_dir.mkdir(parents=True, exist_ok=True)
   destination, _ = QFileDialog.getSaveFileName(
    self, "Download security assessment report",
-   str(Path.home() / "Downloads" / filename),
+   str(download_dir / filename),
    "All files (*)",
   )
   if not destination:
@@ -956,13 +958,16 @@ class Window(QMainWindow):
    Path(destination).write_bytes(payload)
    workspace = getattr(self, "cloud_workspace", None)
    if workspace is not None:
-    jobs = self.api_client.list_project_resource(self.remote_project_id, "jobs")
-    hunt_jobs = [job for job in jobs if job.get("job_type") == "Automated hunt"]
-    if hunt_jobs:
-     latest_hunt_id = max(int(job.get("id", 0)) for job in hunt_jobs)
-     workspace._settings.setValue(
-      f"reports/notified/project_{self.remote_project_id}", str(latest_hunt_id)
-     )
+    try:
+     jobs = self.api_client.list_project_resource(self.remote_project_id, "jobs")
+     hunt_jobs = [job for job in jobs if job.get("job_type") == "Automated hunt"]
+     if hunt_jobs:
+      latest_hunt_id = max(int(job.get("id", 0)) for job in hunt_jobs)
+      workspace._settings.setValue(
+       f"reports/notified/project_{self.remote_project_id}", str(latest_hunt_id)
+      )
+    except APIError:
+     pass
     workspace.remote_stage_status.setText(
      "HUNT FINISHED — report downloaded. You can download it again in another format."
     )
