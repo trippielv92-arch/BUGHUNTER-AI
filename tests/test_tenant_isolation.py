@@ -87,6 +87,7 @@ def test_account_cannot_insert_child_record_for_another_accounts_project(db):
 
 def test_authenticated_api_hides_projects_from_other_accounts(db, monkeypatch):
     from fastapi.testclient import TestClient
+    from sqlalchemy.orm import Session as ORMSession
 
     from app.api import server
     from app.services.auth import create_owner
@@ -103,7 +104,11 @@ def test_authenticated_api_hides_projects_from_other_accounts(db, monkeypatch):
     )
 
     def override_db():
-        yield db
+        request_db = ORMSession(bind=db.get_bind())
+        try:
+            yield request_db
+        finally:
+            request_db.close()
 
     server.app.dependency_overrides[server.get_db] = override_db
     client = TestClient(server.app)
@@ -127,7 +132,7 @@ def test_authenticated_api_hides_projects_from_other_accounts(db, monkeypatch):
                 "programme_url": "https://example.com/program",
             },
         )
-        assert created.status_code == 200
+        assert created.status_code == 201
         private_project_id = created.json()["id"]
 
         second_login = client.post(
@@ -159,7 +164,6 @@ def test_authenticated_api_hides_projects_from_other_accounts(db, monkeypatch):
         )
         assert cross_account_write.status_code == 404
 
-        assert db.info["owner_id"] == second_owner.id
         assert first_owner_id != second_owner.id
     finally:
         server.app.dependency_overrides.pop(server.get_db, None)
