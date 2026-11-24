@@ -62,6 +62,33 @@ class WorkspaceFetchThread(QThread):
             client.close()
 
 
+class ReportDownloadThread(QThread):
+    succeeded = Signal(str)
+    failed = Signal(str)
+
+    def __init__(self, base_url, token, project_id, destination, parent=None):
+        super().__init__(parent)
+        self.base_url = base_url
+        self.token = token
+        self.project_id = int(project_id)
+        self.destination = str(destination)
+
+    def run(self):
+        client = APIClient(self.base_url, timeout=20.0)
+        client._token = self.token
+        try:
+            payload = client.download_report(self.project_id, "pdf")
+            from pathlib import Path
+            path = Path(self.destination)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(payload)
+            self.succeeded.emit(str(path))
+        except Exception as exc:
+            self.failed.emit(f"{type(exc).__name__}: {exc}")
+        finally:
+            client.close()
+
+
 class CloudWorkspace(QWidget):
     """Single cloud workspace for projects, scope, hunts and evidence."""
 
@@ -459,6 +486,42 @@ class CloudWorkspace(QWidget):
     def _workspace_refresh_failed(self, message):
         self.host_window.statusBar().showMessage(f"Workspace refresh failed: {message}")
 
+    def _report_download_succeeded(self, report_path):
+        project_id = self.host_window.remote_project_id
+        if project_id and self._last_report_hunt_id:
+            self._settings.setValue(
+                f"reports/notified/project_{project_id}",
+                str(self._last_report_hunt_id),
+            )
+        QMessageBox.information(
+            self, "Hunt finished — report ready",
+            "I generated your first-person PDF report and saved it to:\n"
+            f"{report_path}\n\nYou can also choose Word, HTML, Markdown or JSON below.",
+        )
+        self.remote_stage_status.setText(
+            "HUNT FINISHED — your report is ready to download. "
+            "The report separates confirmed findings, potential leads and incomplete checks."
+        )
+
+    def _report_download_failed(self, message):
+        project_id = self.host_window.remote_project_id
+        if project_id and self._last_report_hunt_id:
+            self._settings.setValue(
+                f"reports/notified/project_{project_id}",
+                f"failed:{self._last_report_hunt_id}",
+            )
+        self.remote_stage_status.setText(
+            "HUNT FINISHED — automatic PDF generation failed. Use DOWNLOAD REPORT to retry."
+        )
+        QMessageBox.warning(
+            self, "Hunt finished — report needs retry",
+            "The hunt has ended, but the automatic PDF could not be saved. "
+            "Use DOWNLOAD REPORT to retry.\n\n" + message,
+        )
+
+    def _report_download_finished(self):
+        self._report_download_in_progress = False
+
     def _apply_workspace_snapshot(self, snapshot):
         if int(self.host_window.remote_project_id or 0) != int(snapshot.get("project_id") or 0):
             return
@@ -692,15 +755,28 @@ class CloudWorkspace(QWidget):
                 previously_notified = str(self._settings.value(notification_key, ""))
                 failed_marker = f"failed:{latest_hunt_id}"
                 report_generation_failed = previously_notified == failed_marker
-                if previously_notified not in {str(latest_hunt_id), failed_marker}:
-                    self._settings.setValue(notification_key, str(latest_hunt_id))
-                    self.remote_stage_status.setText(
-                        "HUNT FINISHED — report generation is available from the download controls below."
+                if previously_notified not in {str(latest_hunt_id), failed_marker} and not getattr(self, "_report_download_in_progress", False):
+                    report_dir = Path.home() / "Downloads"
+                    safe_name = "".join(
+                        char if char.isalnum() or char in "-_" else "_"
+                        for char in str(project.get("name") or "bughunter-project")
+                    ).strip("_") or "bughunter-project"
+                    report_path = report_dir / f"{safe_name}_hunt_{latest_hunt_id}_security_report.pdf"
+                    self._last_report_hunt_id = latest_hunt_id
+                    self._report_download_in_progress = True
+                    self._report_thread = ReportDownloadThread(
+                        self.client.base_url, self.client._token, project_id, report_path, self,
                     )
+                    self._report_thread.succeeded.connect(self._report_download_succeeded)
+                    self._report_thread.failed.connect(self._report_download_failed)
+                    self._report_thread.finished.connect(self._report_download_finished)
+                    self._report_thread.start()
                 if report_generation_failed:
                     self.remote_stage_status.setText(
                         "HUNT FINISHED — automatic PDF generation failed. Use DOWNLOAD REPORT to retry."
                     )
+                elif getattr(self, "_report_download_in_progress", False):
+                    self.remote_stage_status.setText("HUNT FINISHED — generating your PDF report in the background…")
                 else:
                     self.remote_stage_status.setText(
                         "HUNT FINISHED — your report is ready to download. "
