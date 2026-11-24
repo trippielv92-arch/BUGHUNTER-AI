@@ -622,6 +622,7 @@ class CloudWorkspace(QWidget):
                 notification_key = f"reports/notified/project_{project_id}"
                 previously_notified = str(self._settings.value(notification_key, ""))
                 failed_marker = f"failed:{latest_hunt_id}"
+                report_generation_failed = previously_notified == failed_marker
                 if previously_notified not in {str(latest_hunt_id), failed_marker}:
                     failed = sum(str(j.get("status", "")).lower() != "completed" for j in hunt_jobs)
                     try:
@@ -646,6 +647,7 @@ class CloudWorkspace(QWidget):
                             message += f"\\n\\n{failed} job(s) did not complete successfully; the report marks the coverage as partial."
                         QMessageBox.information(self, "Hunt finished — report ready", message)
                     except Exception as report_error:
+                        report_generation_failed = True
                         self._settings.setValue(notification_key, failed_marker)
                         self.remote_stage_status.setText(
                             "HUNT FINISHED — automatic PDF generation failed. Use DOWNLOAD REPORT to retry."
@@ -657,10 +659,15 @@ class CloudWorkspace(QWidget):
                             "Use DOWNLOAD REPORT to generate it again.\\n\\n"
                             f"{type(report_error).__name__}: {report_error}",
                         )
-                self.remote_stage_status.setText(
-                    "HUNT FINISHED — your report is ready to download. "
-                    "The report separates confirmed findings, potential leads and incomplete checks."
-                )
+                if report_generation_failed:
+                    self.remote_stage_status.setText(
+                        "HUNT FINISHED — automatic PDF generation failed. Use DOWNLOAD REPORT to retry."
+                    )
+                else:
+                    self.remote_stage_status.setText(
+                        "HUNT FINISHED — your report is ready to download. "
+                        "The report separates confirmed findings, potential leads and incomplete checks."
+                    )
             elif active_jobs:
                 self.remote_stage_status.setText(
                     "HUNT RUNNING IN THE CLOUD — progress and findings are updating below. "
