@@ -1,140 +1,95 @@
-# BugHunter AI — authorized security research desktop
+# BugHunter AI
 
-BugHunter AI is a local-first security research workspace. It helps organize programme policy, manually approved scope, passive asset discovery, endpoint inventory, vulnerability assessment planning, potential findings, evidence and reports.
+**BugHunter AI is a cloud-connected desktop workspace for authorized bug-bounty research.** The Parrot Linux application is the single user interface. Accounts, projects, approved scope, hunt jobs and findings are stored by the central API and PostgreSQL database. A separate cloud worker processes queued hunts, so closing the desktop does not stop them.
 
-**Important capability boundary:** the current automated hunt performs passive DNS/Certificate Transparency discovery, bounded same-host HTTPS GET website discovery, endpoint inventory and evidence correlation. It does not yet perform comprehensive vulnerability-specific verification or run exploit payloads. See the cloud deployment guide for the cloud-worker foundation and current limitations.
+## The one supported user workflow
 
-## Install on Parrot OS
+1. Install and open BugHunter AI on Parrot Linux.
+2. Sign in with the account provisioned for the central service.
+3. Create a project and enter its official programme URL.
+4. Review the programme policy, exclusions and extracted asset candidates.
+5. Accept only assets clearly in scope, then explicitly approve the exact scope.
+6. Start a cloud hunt. The cloud worker continues independently of the desktop.
+7. Review discovered assets, endpoints, assessment leads and evidence-backed findings.
 
-Extract the project, open a terminal in `BUGHUNTER-AI`, then run:
+**Scope approval is mandatory.** Newly discovered DNS or Certificate Transparency names are candidates only; they are never automatically authorized. Programme exclusions and testing restrictions take precedence.
+
+## What a hunt currently does
+
+The current automated hunt provides bounded, policy-aware discovery:
+
+- Revalidates the project's active status and exact approved scope.
+- Resolves approved assets and optionally gathers related Certificate Transparency names as unapproved candidates.
+- Performs bounded same-host HTTPS GET discovery and inventories pages, forms, JavaScript references and documented API operations.
+- Checks a fixed set of common exposed configuration, repository, diagnostic and API-documentation paths without directory brute forcing.
+- Records limited anonymous and researcher-owned test-account GET observations for supported API routes.
+- Produces assessment recommendations and correlates observations into potential findings.
+- Persists job state and progress in the cloud database for the background worker and desktop to share.
+
+### Important capability boundary
+
+This release is **not yet a comprehensive autonomous vulnerability scanner**. It does not automatically prove SQL injection, XSS, SSRF, IDOR/BOLA, authentication bypass, race conditions, payment flaws or business-logic vulnerabilities. It does not run destructive or state-changing exploit tests. Potential findings require human review and independent verification. A clean hunt is not proof that a target is secure.
+
+## Architecture
+
+- **Desktop:** PySide6 application; sign-in, projects, programme policy, exact scope approval, hunt controls and results.
+- **API:** FastAPI service; authentication, account isolation, project data and durable job creation.
+- **Database:** Supabase PostgreSQL; shared persistent source of truth.
+- **Worker:** persistent cloud daemon; claims and processes queued hunts independently of the desktop.
+- **Packaging:** Debian package for Parrot Linux; the package is a client for the central service, not a separate cloud installation.
+
+There is one normal cloud workspace. The old local SQLite workspace remains available only as an explicit developer option by setting `BUGHUNTER_ENABLE_LOCAL_MODE=1`; it is not part of the normal Parrot user flow.
+
+## Install on Parrot Linux
+
+Download the latest `BugHunter-AI-Parrot-DEB` artifact from the successful [Build Parrot DEB workflow](https://github.com/trippielv92-arch/BUGHUNTER-AI/actions/workflows/build-deb.yml), then install the downloaded package:
 
 ```bash
-chmod +x scripts/*.sh
+sudo apt install ./bughunter-ai_<version>_all.deb
+```
+
+Launch **BugHunter AI** from the application menu or run:
+
+```bash
+bughunter-ai
+```
+
+The first cloud account is provisioned by an administrator using the local CLI command `bughunter-ai-admin create-account --username YOUR_USERNAME`. The CLI prompts for the password and stores an Argon2 password hash; do not insert plaintext passwords into SQL.
+
+For a source checkout:
+
+```bash
 ./scripts/setup_parrot.sh
 ./scripts/run_parrot.sh
 ```
 
-The source launcher defaults to the configured central cloud API and preselects central-server login. Sign in with the cloud account provisioned for your deployment. Uncheck **Connect to central BugHunter AI server** only when you intentionally want the separate local SQLite workspace; that local workspace requires its own owner account (minimum 12-character password). There is no default account.
+The source launcher uses the same central cloud API as the Debian package.
 
-Run the test suite:
+## Cloud operations
 
-```bash
-source .venv/bin/activate
-PYTHONPATH=. pytest -q
-```
+- Production API: `https://bughunter-ai-ebon.vercel.app`
+- Health endpoint: `/health`
+- Deployment configuration: [Vercel + Supabase guide](docs/VERCEL_SUPABASE_DEPLOYMENT.md)
+- Worker and VPS alternative: [Docker Compose cloud guide](docs/CLOUD_DEPLOYMENT.md)
 
-## Standard workflow
+Cloud readiness must be verified from live API health, authenticated account login, database connectivity and an observed worker job before treating the service as operational. A deployment marked READY only confirms deployment completion; it does not prove all runtime services are healthy.
 
-1. Create a project using the official programme URL. In the remote workspace, the URL is automatically retrieved and analyzed after project creation.
-2. For a private or inaccessible programme, paste/import its official policy text and run analysis; provider passwords are never requested.
-3. Review extracted in-scope, excluded and ambiguous candidates, along with testing restrictions and reward/eligibility clauses.
-4. Use **AUTO-PROPOSE CLEAR IN-SCOPE HOSTS** to add only exact hostnames with clear inclusion evidence to proposed scope. Wildcards, CIDRs, IPs, mobile identifiers and path-limited URLs are not broadened into hostname scope.
-5. Review the complete proposed list and approve the exact included scope.
-6. Click **START CLOUD HUNT** to queue a hunt for every approved host, or **START HUNT** in local mode.
-7. Review newly discovered candidate hosts, endpoints, manual assessment tasks and potential findings.
-8. Verify findings manually within the programme rules; export a report when ready.
+## Safety and data handling
 
-Scope approval is a human decision. Policy-listed exact hostnames can be automatically proposed, but no asset is authorized until the complete scope is explicitly approved. Discovered DNS/CT names are never automatically proposed or approved. Wildcards are not expanded into authorization. A changed policy snapshot revokes previous scope approval.
+- Use only programmes and assets for which you have explicit authorization.
+- Scope exclusions always override inclusions.
+- Discovered assets remain unapproved until a human reviews and approves them.
+- Use only researcher-owned test accounts and synthetic records for permission testing.
+- Credentials are stored as encrypted profiles; never put tokens or passwords in target URLs.
+- Findings remain potential until evidence is reviewed and confirmed.
+- The cloud service stores account, project, scope, job and finding data centrally. Keep API and database secrets out of source control and chat.
 
-## Persistent background hunts
+## Current limitations
 
-The desktop **START HUNT** action creates a durable `Automated hunt` job in the local SQLite database and asks the user-level systemd service to start. The worker runs separately from the desktop, so closing the GUI does not stop a queued/running hunt.
+- Vulnerability-specific verification is still a development milestone.
+- Exact mid-hunt pause/resume and checkpoint continuation are not complete.
+- Cloud worker health monitoring, retry/lease recovery and production backups need further hardening.
+- Supabase RLS is disabled on application tables. Direct table privileges for `anon`, `authenticated` and `PUBLIC` have been revoked, and the backend uses a role with `BYPASSRLS`; this is defense-in-depth work that still needs a reviewed policy/migration before production multi-tenant use.
+- Free-tier hosting limits and database inactivity policies are not suitable for an availability guarantee.
 
-Install the worker once from the project directory:
-
-```bash
-bash scripts/install_hunt_worker.sh
-```
-
-The installer creates and enables `bughunter-hunt-worker.service` for the current Linux user. The desktop attempts to start that service when a hunt is queued.
-
-Useful service commands:
-
-```bash
-systemctl --user status bughunter-hunt-worker.service
-systemctl --user restart bughunter-hunt-worker.service
-journalctl --user -u bughunter-hunt-worker.service -f
-```
-
-The desktop polls the persisted job queue and shows status, percentage and the latest checkpoint. **STOP HUNT** marks the job stopped in the database; the worker checks that state between bounded DNS/HTTP operations and stops cooperatively.
-
-If the worker process is interrupted while a job is running, it safely requeues that job from the beginning on its next startup. It does not pretend to resume at an exact mid-crawl checkpoint. Pause/resume and exact checkpoint continuation are not implemented yet.
-
-The local worker uses the local SQLite database. For hunts that must continue after the Parrot computer is shut down, deploy the PostgreSQL-backed cloud API and worker described in [Cloud deployment](docs/CLOUD_DEPLOYMENT.md). The local SQLite workspace and cloud workspace are separate; projects are not silently synchronized between them.
-
-## Cloud execution
-
-A Docker Compose deployment is now provided for a Linux VPS. It runs PostgreSQL, the authenticated API and one persistent hunt worker as separate services. The API and worker share the same database and durable job queue. PostgreSQL row locking makes each job claim atomic; multi-worker lease/heartbeat recovery is not implemented yet.
-
-For a no-VPS option, see [Vercel + Supabase deployment](docs/VERCEL_SUPABASE_DEPLOYMENT.md). It uses the FastAPI function, a Vercel Daemon worker and Supabase PostgreSQL; check beta availability and free-tier quotas before relying on it. The existing [Docker Compose VPS guide](docs/CLOUD_DEPLOYMENT.md) remains available as a fallback. These are deployment configurations, not cloud services that have already been provisioned.
-
-## What an automated hunt currently does
-
-- Revalidates the project's active status and manually approved scope.
-- Resolves DNS for included and approved assets.
-- Optionally queries Certificate Transparency for names related to approved assets.
-- Saves discovered names as candidates with `included=False` and `approved=False`.
-- Revalidates the exact target before bounded website discovery.
-- Uses up to 100 bounded HTTPS GET requests per approved host, with same-host boundaries, robots.txt checks and bounded response handling.
-- Checks a fixed set of common exposed configuration, repository, diagnostic and API-documentation paths; it does not brute-force directories and does not retain secret values.
-- Performs up to 12 additional endpoint-specific, unauthenticated GET checks against discovered same-host API routes, within the same total request budget.
-- Omits discovered query strings, cookies and credentials from anonymous API checks; skips non-GET methods, templated or concrete object-ID routes, risky action-like paths and robots-disallowed endpoints.
-- Records 401/403 responses as access-control observations and flags only non-empty personal-data-like JSON field names from successful anonymous responses. It never stores response values and does not assume that a public endpoint is a vulnerability.
-- Supports optional encrypted bearer-token and Cookie-header profiles for researcher-owned test accounts, bound to an exact approved host. When configured, the worker compares anonymous and authenticated GET response status and sensitive field-name metadata, with a separate 12-request ceiling.
-- Credentialed comparisons never submit forms or non-GET operations, never reuse response cookies, and never store credential or response values. Behavioral differences are review evidence, not automatic vulnerability confirmations.
-- Enforces parsed programme restrictions: explicit automated-scanning bans skip active crawling, broader bans on automated tools also skip passive discovery, and extracted request-rate limits increase inter-request delay.
-- Inventories discovered pages, forms, JavaScript references and documented API operations where available.
-- Creates metadata-driven manual assessment recommendations for discovered endpoints.
-- Correlates existing observations with potential findings without sending extra requests or payloads.
-- Persists progress, checkpoints, results and job status in the local database.
-
-The current hunt page/request limit is bounded (maximum 100). Website discovery does not follow redirects. Certificate Transparency lookups contact `crt.sh`; discovered target hosts are not probed unless individually reviewed and approved later.
-
-## Safety and authorization boundaries
-
-- Test only assets explicitly authorized by the relevant programme.
-- Exclusions and programme restrictions take precedence; review the official policy before approving scope.
-- New DNS/CT names are candidates only. They are not authorization.
-- The automated hunt does not run SQL injection, XSS, IDOR, SSRF, authentication bypass, payment, race-condition or other exploit payloads.
-- Credentialed GET comparisons are limited to discovered parameter-free API routes and up to three explicitly supplied test-account profiles. They do not prove IDOR or broken access control, and they do not test state-changing operations.
-- IDOR object-ownership verification, SSRF, injection, CSRF and business-logic checks remain manual and require approved test accounts, synthetic data or a controlled environment.
-- Potential findings are not automatically confirmed. Correlation is supporting evidence only.
-- Do not put credentials, session tokens or other secrets in the target URL. Hunt creation rejects query strings for this reason.
-
-No findings does not mean a target is secure. A discovery run is not a comprehensive security assessment.
-
-## Implemented foundation
-
-- Native PySide6 desktop interface and local owner login.
-- SQLAlchemy persistence and per-account project data isolation.
-- Automatic programme-page analysis on remote project creation, with private-programme policy-text import.
-- Known-provider identification plus generic policy parsing for other programme URLs.
-- Structured extraction of inclusion/exclusion candidates, path-limited URLs, wildcard/CIDR/IP assets, mobile app identifiers, eligibility/reward clauses and testing restrictions.
-- One-click proposal of clear exact-host candidates, stale-policy candidate rejection and policy-change scope-approval revocation.
-- Programme-aware automated-tool prohibitions and conservative request-rate enforcement.
-- Exact included-asset scope approval gate.
-- Passive DNS and Certificate Transparency discovery with unapproved candidate handling.
-- Bounded website crawling and endpoint/API documentation inventory.
-- Metadata-driven manual assessment planning.
-- Potential findings, evidence records, finding correlation and report export.
-- Persistent local job queue and systemd background worker integration.
-- Job progress polling, cooperative stop requests and restart recovery from the beginning.
-
-## Still under development
-
-- Provider-specific API adapters, JavaScript-rendered policy-page support and authenticated browser-session import.
-- Complete wildcard/CIDR/path-aware authorization semantics, programme expiry handling and stronger interpretation of complex rate-limit clauses.
-- True pause/resume and exact mid-hunt checkpoint recovery.
-- Deeper permission-gated vulnerability verification using controlled test accounts.
-- Stronger finding deduplication, review workflow and evidence lifecycle.
-- Managed cloud hosting, TLS ingress, encrypted backups and operational monitoring.
-- Authenticated browser-session import for private programmes (policy-text import is supported as the safer current fallback).
-- Further security hardening, integration tests, packaging and operational monitoring.
-
-## Data and privacy
-
-The default local SQLite database is stored under `data/bughunter.db` (overridable with `BUGHUNTER_DATA_DIR` or `BUGHUNTER_DATABASE_URL`). Cloud mode uses PostgreSQL. Passwords are Argon2-hashed. Database and evidence encryption at rest, encrypted backups and tamper-evident audit logs require additional deployment hardening. Private-programme policy text can be pasted/imported without saving provider passwords or session cookies.
-
-## Requirements
-
-Python 3.10+, Parrot OS with a graphical desktop session, systemd user services for persistent hunts, and network access for programme retrieval and authorized discovery. PySide6 may require distro Qt/XCB runtime libraries.
+See [the product architecture and completion gates](docs/PRODUCT_ARCHITECTURE.md) and [the roadmap](docs/ROADMAP.md).
