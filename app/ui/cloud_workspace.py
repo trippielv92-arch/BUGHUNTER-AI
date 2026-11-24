@@ -108,8 +108,8 @@ class CloudWorkspace(QWidget):
 
         # Keep history widgets for compatibility, but do not expose them as navigation.
         body = QHBoxLayout()
-        self.remote_project_list = QListWidget()
-        self.remote_archived_list = QListWidget()
+        self.remote_project_list = QListWidget(self)
+        self.remote_archived_list = QListWidget(self)
         self.remote_project_list.itemClicked.connect(self.host_window.select_remote_project)
         self.remote_archived_list.itemClicked.connect(self.host_window.select_remote_archived_project)
 
@@ -623,8 +623,8 @@ class CloudWorkspace(QWidget):
                     self._settings.setValue(notification_key, str(latest_hunt_id))
                     failed = sum(str(j.get("status", "")).lower() != "completed" for j in hunt_jobs)
                     message = (
-                        "Your BugHunter AI hunt has finished. I prepared the project report; "
-                        "choose a format and download it from the report controls."
+                        "Your BugHunter AI hunt has finished. The report is ready to generate "
+                        "in your chosen format; select a format and download it below."
                     )
                     if failed:
                         message += f" {failed} job(s) ended without a completed status; the report will identify partial coverage."
