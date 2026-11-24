@@ -167,14 +167,6 @@ class CloudWorkspace(QWidget):
         self.remote_start_hunt_button.setMinimumHeight(42)
         self.remote_start_hunt_button.setEnabled(False)
         self.remote_start_hunt_button.hide()
-        self.remote_analyze_button.setEnabled(False)
-        self.remote_workspace_tabs.hide()
-        self.remote_report_format.hide()
-        self.remote_download_report_button.hide()
-        self.remote_selected_project_title.hide()
-        self.remote_stage_status.setText(
-            "Create a project with its official programme URL and name, then analyze the programme policy."
-        )
         self.remote_start_hunt_button.clicked.connect(self.host_window.start_remote_hunt)
         self.remote_start_hunt_button.hide()
         actions.addWidget(self.remote_start_hunt_button)
@@ -615,8 +607,8 @@ class CloudWorkspace(QWidget):
                 f"⏳  HUNT ACTIVE ({len(active_jobs)})" if active_jobs
                 else "▶  START HUNT"
             )
-            self.remote_workspace_tabs.setVisible(bool(active_jobs) or bool(hunt_jobs) or bool(findings))
             hunt_jobs = [j for j in jobs if j.get("job_type") == "Automated hunt"]
+            self.remote_workspace_tabs.setVisible(bool(active_jobs) or bool(hunt_jobs) or bool(findings))
             terminal_statuses = {"completed", "failed", "stopped"}
             hunt_finished = bool(hunt_jobs) and all(
                 str(j.get("status", "")).lower() in terminal_statuses for j in hunt_jobs
@@ -674,3 +666,12 @@ class CloudWorkspace(QWidget):
         self.remote_hunt_progress.setValue(0)
         self.remote_selected_project_title.setText("Select a project to open its workspace")
         self.remote_start_hunt_button.setEnabled(False)
+        self.remote_start_hunt_button.hide()
+        self.remote_analyze_button.setEnabled(False)
+        self.remote_workspace_tabs.hide()
+        self.remote_report_format.hide()
+        self.remote_download_report_button.hide()
+        self.remote_selected_project_title.hide()
+        self.remote_stage_status.setText(
+            "Create a project with its official programme URL and name, then analyze the programme policy."
+        )
