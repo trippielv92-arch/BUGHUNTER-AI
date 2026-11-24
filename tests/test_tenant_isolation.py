@@ -32,7 +32,7 @@ def test_project_and_child_reads_are_isolated_between_accounts(db):
 
     db.info["owner_id"] = first_owner_id
     db.add(Finding(
-        project_id=first_project.id,
+        project_id=first_project_id,
         title="First account finding",
         category="Information Disclosure",
         asset="https://first.example.test/",
@@ -55,6 +55,7 @@ def test_project_and_child_reads_are_isolated_between_accounts(db):
 def test_account_cannot_insert_child_record_for_another_accounts_project(db):
     first_owner_id = db.info["owner_id"]
     first_project = create_project(db, "First account project")
+    first_project_id = first_project.id
 
     second_owner = User(
         username="second-account-write-test",
@@ -70,7 +71,7 @@ def test_account_cannot_insert_child_record_for_another_accounts_project(db):
     db.info["owner_id"] = first_owner_id
 
     db.add(Finding(
-        project_id=second_project.id,
+        project_id=second_project_id,
         title="Cross-tenant write attempt",
         category="Other",
         asset="https://example.test/",
