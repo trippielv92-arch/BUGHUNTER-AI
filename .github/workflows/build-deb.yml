@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - "app/**"
+      - "tests/**"
       - "config/**"
       - "packaging/**"
       - "scripts/build_deb.sh"
