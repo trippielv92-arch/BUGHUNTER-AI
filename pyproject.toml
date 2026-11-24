@@ -1,6 +1,6 @@
 [project]
 name = "bughunter-ai"
-version = "0.3.3"
+version = "0.4.0rc1"
 description = "Authorized security research desktop and cloud worker"
 requires-python = ">=3.11"
 dependencies = [

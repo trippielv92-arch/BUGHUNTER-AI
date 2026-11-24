@@ -542,6 +542,7 @@ def _save_finding(
         select(Finding).where(
             Finding.project_id == project_id,
             Finding.title == title,
+            Finding.category == category,
             Finding.asset == asset,
         ).limit(1)
     )

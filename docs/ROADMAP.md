@@ -34,3 +34,26 @@ BugHunter AI is one cloud-connected Parrot desktop client backed by an authentic
 - No destructive, state-changing or high-impact tests without explicit authorization and controlled test data.
 - Never mark a finding confirmed solely from a heuristic or response difference.
 - Never claim a hunt resumed at an exact checkpoint unless that checkpoint was actually restored.
+
+## Current release-hardening branch
+
+The `release/hardening-v0.4.0` branch adds the following regression-protected changes:
+
+- [x] Bound transient hunt retries to three total attempts, with short backoff between retries.
+- [x] Persist retry count in the existing durable job input; no schema migration is required.
+- [x] Keep transport/database exception text out of job records because it can contain secrets or request details.
+- [x] Include finding category in exact duplicate identity so different vulnerability classes on the same asset are not collapsed.
+- [x] Add two-account project/child-record isolation regression tests.
+- [x] Add finding identity/correlation, evidence-tamper, assessment-planner, tenant-isolation, heartbeat and retry-boundary regression tests.
+- [x] Obtain a passing full CI run (187 tests) and inspect the `0.4.0rc1` Debian package.
+- [ ] Verify production API, worker, database connectivity and account isolation against the deployed environment.
+- [ ] Complete worker heartbeat/lease observability and controlled retry recovery for process/database interruption.
+- [ ] Extend automated vulnerability verification only where a controlled test account or researcher-owned synthetic resource provides safe proof. Heuristic indicators remain potential findings, never automatic confirmations.
+
+These changes are hardening work, not a claim that the final release gates have passed.
+
+## Production database inspection — 2026-11-24
+
+The linked Supabase project is reachable and reports `ACTIVE_HEALTHY`. Inspection found 15 public application tables and RLS enabled on all 15. Across all 15 public tables, the Supabase `anon` and `authenticated` roles had zero SELECT or INSERT privileges, consistent with the private API-only database architecture. Supabase's RLS-without-policy advisory is therefore expected only while those public roles remain unprivileged; do not add broad public policies to silence it.
+
+The database currently reports no recorded migration history. The application has startup schema creation/compatibility logic, but production deployment still needs a successful API/worker startup test against this exact schema and confirmation that the configured API and worker connections use the intended private database role. No production DDL was changed during this inspection.

@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - "app/**"
+      - "tests/**"
       - "config/**"
       - "packaging/**"
       - "scripts/build_deb.sh"
@@ -68,6 +69,8 @@ jobs:
           test -x /tmp/bughunter-package/usr/bin/bughunter-ai-admin
           test -f /tmp/bughunter-package/opt/bughunter-ai/app/ui/main_window.py
           test -f /tmp/bughunter-package/opt/bughunter-ai/requirements-desktop.txt
+          test -z "$(find /tmp/bughunter-package/opt/bughunter-ai -type d -name '__pycache__' -print -quit)"
+          test -z "$(find /tmp/bughunter-package/opt/bughunter-ai -type f \( -name '*.pyc' -o -name '*.pyo' \) -print -quit)"
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:

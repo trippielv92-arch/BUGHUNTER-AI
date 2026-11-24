@@ -180,6 +180,16 @@ def update_job_progress(db, job_id, progress, checkpoint=None):
     return job
 
 
+def touch_job_heartbeat(db, job_id):
+    """Update the liveness timestamp for a running job without changing progress."""
+    job = db.get(AssessmentJob, job_id)
+    if job is None or job.status != "running":
+        return False
+    job.updated_at = utc_now()
+    db.commit()
+    return True
+
+
 def list_jobs(db, project_id):
     """Return fresh job state so desktop polling sees worker-side updates."""
     return db.scalars(
@@ -212,3 +222,70 @@ def recover_interrupted_jobs(db):
         db.commit()
 
     return len(jobs)
+
+
+
+def retry_hunt_job(db, job_id, error, max_attempts=3):
+    """Requeue a transiently failed hunt a bounded number of times.
+
+    Retry metadata is stored in the existing durable job input JSON so this
+    change does not require a destructive schema migration. Exception text is
+    deliberately excluded because transport/database errors can contain
+    request URLs, headers, or other sensitive material.
+    """
+    if (
+        not isinstance(max_attempts, int)
+        or isinstance(max_attempts, bool)
+        or not 1 <= max_attempts <= 5
+    ):
+        raise ValueError("max_attempts must be an integer from 1 to 5.")
+
+    job = db.get(AssessmentJob, job_id)
+    if (
+        job is None
+        or job.job_type != "Automated hunt"
+        or job.status != "running"
+    ):
+        return 0
+
+    try:
+        config = json.loads(job.input_json or "{}")
+    except (TypeError, ValueError):
+        config = {}
+    if not isinstance(config, dict):
+        config = {}
+
+    previous_attempts = config.get("_retry_attempts", 0)
+    if (
+        not isinstance(previous_attempts, int)
+        or isinstance(previous_attempts, bool)
+        or previous_attempts < 0
+    ):
+        previous_attempts = 0
+
+    # max_attempts includes the original attempt.
+    if previous_attempts >= max_attempts - 1:
+        return 0
+
+    attempts = previous_attempts + 1
+    config["_retry_attempts"] = attempts
+    job.input_json = json.dumps(config, ensure_ascii=True)
+    job.status = "queued"
+    job.progress = 0
+    job.finished_at = None
+    job.updated_at = utc_now()
+    job.checkpoint = (
+        f"Transient {type(error).__name__}; safely queued retry "
+        f"{attempts} of {max_attempts - 1}. The next attempt starts "
+        "from the beginning; no unsupported checkpoint resume is claimed."
+    )[:20000]
+    job.error_message = (
+        f"Transient {type(error).__name__}; retry {attempts} queued."
+    )[:10000]
+    db.commit()
+
+    log_activity(
+        db, job.project_id, "Automated hunt retry queued",
+        f"Job #{job.id}: retry {attempts} of {max_attempts - 1}.",
+    )
+    return attempts
