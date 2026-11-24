@@ -832,11 +832,16 @@ class CloudWorkspace(QWidget):
             self.remote_analyze_button.setText(
                 "RE-ANALYZE POLICY" if has_policy else "ANALYZE PROJECT  →"
             )
+            self.remote_step_label.setText(
+                "STEP 3 OF 3   ·   READY TO START HUNT" if ready
+                else ("STEP 2 OF 3   ·   REVIEW PROGRAMME & SCOPE" if has_policy
+                      else "STEP 2 OF 3   ·   ANALYZE PROGRAMME")
+            )
             self.remote_stage_status.setText(
                 f"PROJECT: {project.get('name', 'Selected project')}  ·  "
-                + ("STEP 3 — APPROVED SCOPE. Start the hunt when ready." if ready
-                   else ("STEP 2 — POLICY SAVED. Review the extracted rules and exact assets, then approve scope." if has_policy
-                         else "STEP 2 — Analyze the official programme policy to extract scope, restrictions and testing rules."))
+                + ("STEP 3 — EXACT SCOPE APPROVED. Start the hunt when ready." if ready
+                   else ("STEP 2 — POLICY ANALYZED. Review the official rules, exclusions and every extracted candidate. Approve only assets you have verified are explicitly in scope." if has_policy
+                         else "STEP 2 — Analyze the official programme page to retrieve its rules, identify scope candidates and extract testing restrictions. No target assets are tested during analysis."))
             )
             self.remote_scope_hint.setVisible(ready)
             self.remote_start_hunt_button.setVisible(
