@@ -4,15 +4,15 @@
 
 ## The one supported user workflow
 
-1. Install and open BugHunter AI on Parrot Linux.
-2. Sign in with the account provisioned for the central service.
-3. Create a project and enter its official programme URL.
-4. Review the programme policy, exclusions and extracted asset candidates.
-5. Accept only assets clearly in scope, then explicitly approve the exact scope.
-6. Start a cloud hunt. The cloud worker continues independently of the desktop.
-7. Review discovered assets, endpoints, assessment leads and evidence-backed findings.
+1. Sign in to the central BugHunter AI service.
+2. **Create project:** enter the project name and the official programme URL.
+3. **Analyze project:** retrieve the programme page, extract the policy, scope candidates, exclusions, do's and don'ts, rate limits and execution restrictions. Save the policy snapshot.
+4. Review the original policy text, extracted rules and every candidate. Accept only assets clearly in scope, add exact hosts to proposed scope, and explicitly approve the exact included asset list.
+5. **Start hunt:** queue the approved hosts for the independent cloud worker. Closing the desktop does not stop queued jobs.
+6. **Vulnerabilities:** review findings, severity, confidence, affected assets, source observations and attached evidence as the jobs progress.
+7. **Report:** when all hunt jobs have ended, the desktop generates a first-person PDF in your Downloads folder and shows a completion notification. You can also download PDF, Word, HTML, Markdown or JSON from the report controls.
 
-**Scope approval is mandatory.** Newly discovered DNS or Certificate Transparency names are candidates only; they are never automatically authorized. Programme exclusions and testing restrictions take precedence.
+**Scope approval is mandatory.** Newly discovered DNS or Certificate Transparency names are candidates only; they are never automatically authorized. Programme exclusions and testing restrictions take precedence. Policy extraction currently uses generic text parsing rather than a complete provider-specific API adapter. If a programme page is private or dynamically rendered, paste its official policy text into the policy-review step. Always review the original source before approving scope.
 
 ## What a hunt currently does
 
@@ -25,6 +25,7 @@ The current automated hunt provides bounded, policy-aware discovery:
 - Records limited anonymous and researcher-owned test-account GET observations for supported API routes.
 - Produces assessment recommendations and correlates observations into potential findings.
 - Persists job state and progress in the cloud database for the background worker and desktop to share.
+- Generates a first-person researcher report after the project's automated hunt jobs have ended. PDF is saved automatically by the desktop; Word, HTML, Markdown and JSON are available on demand.
 
 ### Important capability boundary
 
