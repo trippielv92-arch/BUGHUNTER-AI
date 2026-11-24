@@ -5,13 +5,61 @@ from the authenticated central API. The persistent worker is independent.
 """
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, QSettings
+from PySide6.QtCore import Qt, QTimer, QSettings, QThread, Signal
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QLineEdit,
     QPushButton, QListWidget, QGroupBox, QFrame, QTextEdit, QTabWidget,
     QTableWidget, QTableWidgetItem, QHeaderView, QProgressBar, QListWidgetItem,
     QComboBox, QMessageBox, QFileDialog,
 )
+
+
+from concurrent.futures import ThreadPoolExecutor
+from app.services.api_client import APIClient
+
+
+class WorkspaceFetchThread(QThread):
+    succeeded = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, base_url, token, project_id, parent=None):
+        super().__init__(parent)
+        self.base_url = base_url
+        self.token = token
+        self.project_id = int(project_id)
+
+    def run(self):
+        client = APIClient(self.base_url, timeout=8.0)
+        client._token = self.token
+        names = (
+            "assets", "findings", "endpoints", "checks",
+            "test-cases", "jobs", "evidence", "activities",
+        )
+        try:
+            calls = {
+                "project": lambda: client.get_project(self.project_id),
+                "policies": lambda: client.list_program_policies(self.project_id),
+            }
+            calls.update({
+                name: (lambda resource=name: client.list_project_resource(self.project_id, resource))
+                for name in names
+            })
+            with ThreadPoolExecutor(max_workers=6) as pool:
+                futures = {name: pool.submit(call) for name, call in calls.items()}
+                result = {name: future.result() for name, future in futures.items()}
+            if not isinstance(result["project"], dict):
+                raise RuntimeError("The API returned invalid project data.")
+            for name in names:
+                if not isinstance(result[name], list):
+                    raise RuntimeError(f"The API returned invalid {name} data.")
+            if not isinstance(result["policies"], list):
+                raise RuntimeError("The API returned invalid programme policy data.")
+            result["project_id"] = self.project_id
+            self.succeeded.emit(result)
+        except Exception as exc:
+            self.failed.emit(f"{type(exc).__name__}: {exc}")
+        finally:
+            client.close()
 
 
 class CloudWorkspace(QWidget):
@@ -396,302 +444,281 @@ class CloudWorkspace(QWidget):
         if not project_id:
             return
         self._refreshing = True
+        self.remote_stage_status.setText("Syncing project data in the background…")
+        self._refresh_thread = WorkspaceFetchThread(
+            self.client.base_url, self.client._token, project_id, self
+        )
+        self._refresh_thread.succeeded.connect(self._apply_workspace_snapshot)
+        self._refresh_thread.failed.connect(self._workspace_refresh_failed)
+        self._refresh_thread.finished.connect(self._workspace_refresh_finished)
+        self._refresh_thread.start()
+
+    def _workspace_refresh_finished(self):
+        self._refreshing = False
+
+    def _workspace_refresh_failed(self, message):
+        self.host_window.statusBar().showMessage(f"Workspace refresh failed: {message}")
+
+    def _apply_workspace_snapshot(self, snapshot):
+        if int(self.host_window.remote_project_id or 0) != int(snapshot.get("project_id") or 0):
+            return
+        project = snapshot["project"]
+        resources = {name: snapshot[name] for name in (
+            "assets", "findings", "endpoints", "checks", "test-cases",
+            "jobs", "evidence", "activities",
+        )}
+        policies = snapshot["policies"]
         try:
-            project = self.client.get_project(project_id)
-            resources = {}
-            for name in (
-                "assets", "findings", "endpoints", "checks",
-                "test-cases", "jobs", "evidence", "activities",
-            ):
-                value = self.client.list_project_resource(project_id, name)
-                if not isinstance(value, list):
-                    raise RuntimeError(f"The API returned invalid {name} data.")
-                resources[name] = value
+        latest_policy = policies[0] if policies and isinstance(policies[0], dict) else {}
+        candidates = len(latest_policy.get("assets", []))
+        assets = resources["assets"]
+        approved = [
+            item for item in assets
+            if item.get("included") and item.get("approved")
+        ]
+        findings = resources["findings"]
+        endpoints = resources["endpoints"]
+        checks = resources["checks"]
+        tests = resources["test-cases"]
+        jobs = resources["jobs"]
+        evidence = resources["evidence"]
+        activities = resources["activities"]
+        active_jobs = [
+            job for job in jobs if job.get("status") in {"queued", "running", "paused"}
+        ]
 
-            policies = self.client.list_program_policies(project_id)
-            latest_policy = policies[0] if policies and isinstance(policies[0], dict) else {}
-            candidates = len(latest_policy.get("assets", []))
-            assets = resources["assets"]
-            approved = [
-                item for item in assets
-                if item.get("included") and item.get("approved")
-            ]
-            findings = resources["findings"]
-            endpoints = resources["endpoints"]
-            checks = resources["checks"]
-            tests = resources["test-cases"]
-            jobs = resources["jobs"]
-            evidence = resources["evidence"]
-            activities = resources["activities"]
-            active_jobs = [
-                job for job in jobs if job.get("status") in {"queued", "running", "paused"}
-            ]
+        metrics = {
+            "approved_assets": len(approved),
+            "candidates": candidates,
+            "endpoints": len(endpoints),
+            "findings": len(findings),
+            "active_hunts": len(active_jobs),
+            "evidence": len(evidence),
+        }
+        for key, value in metrics.items():
+            self.remote_metric_values[key].setText(str(value))
 
-            metrics = {
-                "approved_assets": len(approved),
-                "candidates": candidates,
-                "endpoints": len(endpoints),
-                "findings": len(findings),
-                "active_hunts": len(active_jobs),
-                "evidence": len(evidence),
-            }
-            for key, value in metrics.items():
-                self.remote_metric_values[key].setText(str(value))
+        self.host_window.remote_project = project
+        self.remote_create_project_box.hide()
+        self.remote_selected_project_title.show()
+        self.remote_stage_status.show()
+        self.remote_selected_project_title.setText(
+            project.get("name", "Selected project")
+        )
+        self.remote_project_details.setPlainText(
+            f"PROJECT #{project.get('id')}   ·   STATUS: "
+            f"{str(project.get('status', 'unknown')).upper()}   ·   "
+            f"SCOPE: {'APPROVED' if project.get('scope_approved') else 'NOT APPROVED'}\n"
+            f"PROGRAMME: {project.get('programme_url') or 'Not supplied'}\n"
+            f"APPROVED ASSETS: {len(approved)}   ·   OTHER SCOPE RECORDS: "
+            f"{len(assets) - len(approved)}   ·   ENDPOINTS: {len(endpoints)}   ·   "
+            f"FINDINGS: {len(findings)}"
+        )
+        ready = bool(project.get("scope_approved") and approved)
+        if ready:
+            self.remote_scope_hint.setText(
+                f"Scope approved for {len(approved)} included asset(s). "
+                "Policy-aware assessment is ready. Newly discovered hosts remain "
+                "unapproved until reviewed and separately approved."
+            )
+            self.remote_scope_hint.setStyleSheet(
+                "color:#7fe0b0;background:#102b28;border:1px solid #285c4b;"
+                "border-radius:7px;padding:10px"
+            )
+        else:
+            self.remote_scope_hint.setText(
+                "Scope is not ready. Review the official programme policy, "
+                "reject exclusions, accept eligible candidates, then approve "
+                "the exact included assets."
+            )
+            self.remote_scope_hint.setStyleSheet(
+                "color:#f0c66b;background:#25251d;border:1px solid #5b4a28;"
+                "border-radius:7px;padding:10px"
+            )
 
-            self.host_window.remote_project = project
-            self.remote_create_project_box.hide()
-            self.remote_selected_project_title.show()
-            self.remote_stage_status.show()
-            self.remote_selected_project_title.setText(
-                project.get("name", "Selected project")
-            )
-            self.remote_project_details.setPlainText(
-                f"PROJECT #{project.get('id')}   ·   STATUS: "
-                f"{str(project.get('status', 'unknown')).upper()}   ·   "
-                f"SCOPE: {'APPROVED' if project.get('scope_approved') else 'NOT APPROVED'}\n"
-                f"PROGRAMME: {project.get('programme_url') or 'Not supplied'}\n"
-                f"APPROVED ASSETS: {len(approved)}   ·   OTHER SCOPE RECORDS: "
-                f"{len(assets) - len(approved)}   ·   ENDPOINTS: {len(endpoints)}   ·   "
-                f"FINDINGS: {len(findings)}"
-            )
-            ready = bool(project.get("scope_approved") and approved)
-            if ready:
-                self.remote_scope_hint.setText(
-                    f"Scope approved for {len(approved)} included asset(s). "
-                    "Policy-aware assessment is ready. Newly discovered hosts remain "
-                    "unapproved until reviewed and separately approved."
-                )
-                self.remote_scope_hint.setStyleSheet(
-                    "color:#7fe0b0;background:#102b28;border:1px solid #285c4b;"
-                    "border-radius:7px;padding:10px"
-                )
-            else:
-                self.remote_scope_hint.setText(
-                    "Scope is not ready. Review the official programme policy, "
-                    "reject exclusions, accept eligible candidates, then approve "
-                    "the exact included assets."
-                )
-                self.remote_scope_hint.setStyleSheet(
-                    "color:#f0c66b;background:#25251d;border:1px solid #5b4a28;"
-                    "border-radius:7px;padding:10px"
-                )
+        self._fill_table(self.remote_assets_table, [
+            (a.get("host"), "INCLUDED" if a.get("included") else "EXCLUDED",
+             "APPROVED" if a.get("approved") else "NOT APPROVED", a.get("notes"))
+            for a in assets
+        ])
+        self._fill_table(self.remote_endpoints_table, [
+            (e.get("method"), e.get("url"), e.get("endpoint_type"), e.get("notes"))
+            for e in endpoints
+        ])
 
-            self._fill_table(self.remote_assets_table, [
-                (a.get("host"), "INCLUDED" if a.get("included") else "EXCLUDED",
-                 "APPROVED" if a.get("approved") else "NOT APPROVED", a.get("notes"))
-                for a in assets
-            ])
-            self._fill_table(self.remote_endpoints_table, [
-                (e.get("method"), e.get("url"), e.get("endpoint_type"), e.get("notes"))
-                for e in endpoints
-            ])
+        def check_category(name):
+            value = str(name or "").lower()
+            if "cors" in value:
+                return "Cross-origin policy (CORS)"
+            if any(term in value for term in ("authorization", "object reference", "cross-account", "role-based")):
+                return "Access control (IDOR / BOLA)"
+            if any(term in value for term in ("openapi", "api access", "api operation", "api response", "api disclosure")):
+                return "API security and data exposure"
+            if any(term in value for term in ("javascript", "client-side", "source-map")):
+                return "Client-side security"
+            if "reflection" in value:
+                return "Reflected input (XSS review)"
+            if "redirect" in value:
+                return "Redirect handling"
+            if any(term in value for term in ("cookie", "session")):
+                return "Session management"
+            if any(term in value for term in ("tls", "transport", "header", "csp", "hsts", "html")):
+                return "Transport and security configuration"
+            if any(term in value for term in ("sensitive", "disclosure", "exposure", "secret")):
+                return "Sensitive information exposure"
+            if "sql" in value or "database" in value:
+                return "Database error disclosure"
+            if "robots" in value or "endpoint" in value:
+                return "Attack-surface discovery"
+            return "Web application assessment"
 
-            def check_category(name):
-                value = str(name or "").lower()
-                if "cors" in value:
-                    return "Cross-origin policy (CORS)"
-                if any(term in value for term in ("authorization", "object reference", "cross-account", "role-based")):
-                    return "Access control (IDOR / BOLA)"
-                if any(term in value for term in ("openapi", "api access", "api operation", "api response", "api disclosure")):
-                    return "API security and data exposure"
-                if any(term in value for term in ("javascript", "client-side", "source-map")):
-                    return "Client-side security"
-                if "reflection" in value:
-                    return "Reflected input (XSS review)"
-                if "redirect" in value:
-                    return "Redirect handling"
-                if any(term in value for term in ("cookie", "session")):
-                    return "Session management"
-                if any(term in value for term in ("tls", "transport", "header", "csp", "hsts", "html")):
-                    return "Transport and security configuration"
-                if any(term in value for term in ("sensitive", "disclosure", "exposure", "secret")):
-                    return "Sensitive information exposure"
-                if "sql" in value or "database" in value:
-                    return "Database error disclosure"
-                if "robots" in value or "endpoint" in value:
-                    return "Attack-surface discovery"
-                return "Web application assessment"
+        check_groups = {}
+        for check in checks:
+            category = check_category(check.get("check_name"))
+            bucket = check_groups.setdefault(category, {
+                "completed": 0, "skipped": 0, "failed": 0,
+                "total": 0, "latest": "—",
+            })
+            outcome = str(check.get("outcome") or "unknown").lower()
+            bucket["total"] += 1
+            if outcome in {"completed", "passed", "success"}:
+                bucket["completed"] += 1
+            elif outcome in {"skipped", "blocked", "not_applicable"}:
+                bucket["skipped"] += 1
+            elif outcome in {"failed", "error"}:
+                bucket["failed"] += 1
+            if bucket["latest"] == "—":
+                bucket["latest"] = outcome.upper()
+        self._fill_table(self.remote_assessment_table, [
+            (category, bucket["total"], bucket["completed"],
+             bucket["skipped"], bucket["failed"], bucket["latest"])
+            for category, bucket in sorted(check_groups.items())
+        ])
+        self._fill_table(self.remote_test_plan_table, [
+            (test.get("category"), test.get("title"),
+             str(test.get("status", "")).upper(),
+             test.get("target"), test.get("notes"))
+            for test in tests
+        ])
+        self._fill_table(self.remote_checks_table, [
+            (c.get("asset"), c.get("check_name"),
+             str(c.get("outcome", "")).upper(), c.get("created_at"))
+            for c in checks
+        ])
+        self._fill_table(self.remote_findings_table, [
+            (str(f.get("severity", "")).upper(),
+             str(f.get("confidence", "")).upper(),
+             str(f.get("status", "")).upper(), f.get("category"),
+             f.get("title"), f.get("asset"), f.get("evidence"))
+            for f in findings
+        ])
+        self._fill_table(self.remote_jobs_table, [
+            (f"#{j.get('id')} · {j.get('job_type')}",
+             str(j.get("status", "")).upper(),
+             f"{j.get('progress', 0)}%", j.get("checkpoint"),
+             j.get("created_at"), j.get("error_message") or j.get("finished_at"))
+            for j in jobs
+        ])
+        self._fill_table(self.remote_evidence_table, [
+            (e.get("id"), e.get("original_name"), e.get("sha256"),
+             f"{e.get('size_bytes', 0)} bytes",
+             f"Finding #{e.get('finding_id')}" if e.get("finding_id")
+             else (f"Test #{e.get('test_case_id')}" if e.get("test_case_id")
+             else (f"Check #{e.get('scan_check_id')}" if e.get("scan_check_id")
+             else "Unlinked")), e.get("created_at"))
+            for e in evidence
+        ])
+        self._fill_table(self.remote_activity_table, [
+            (a.get("created_at"), a.get("event"), a.get("details"))
+            for a in activities
+        ])
 
-            check_groups = {}
-            for check in checks:
-                category = check_category(check.get("check_name"))
-                bucket = check_groups.setdefault(category, {
-                    "completed": 0, "skipped": 0, "failed": 0,
-                    "total": 0, "latest": "—",
-                })
-                outcome = str(check.get("outcome") or "unknown").lower()
-                bucket["total"] += 1
-                if outcome in {"completed", "passed", "success"}:
-                    bucket["completed"] += 1
-                elif outcome in {"skipped", "blocked", "not_applicable"}:
-                    bucket["skipped"] += 1
-                elif outcome in {"failed", "error"}:
-                    bucket["failed"] += 1
-                if bucket["latest"] == "—":
-                    bucket["latest"] = outcome.upper()
-            self._fill_table(self.remote_assessment_table, [
-                (category, bucket["total"], bucket["completed"],
-                 bucket["skipped"], bucket["failed"], bucket["latest"])
-                for category, bucket in sorted(check_groups.items())
-            ])
-            self._fill_table(self.remote_test_plan_table, [
-                (test.get("category"), test.get("title"),
-                 str(test.get("status", "")).upper(),
-                 test.get("target"), test.get("notes"))
-                for test in tests
-            ])
-            self._fill_table(self.remote_checks_table, [
-                (c.get("asset"), c.get("check_name"),
-                 str(c.get("outcome", "")).upper(), c.get("created_at"))
-                for c in checks
-            ])
-            self._fill_table(self.remote_findings_table, [
-                (str(f.get("severity", "")).upper(),
-                 str(f.get("confidence", "")).upper(),
-                 str(f.get("status", "")).upper(), f.get("category"),
-                 f.get("title"), f.get("asset"), f.get("evidence"))
-                for f in findings
-            ])
-            self._fill_table(self.remote_jobs_table, [
-                (f"#{j.get('id')} · {j.get('job_type')}",
-                 str(j.get("status", "")).upper(),
-                 f"{j.get('progress', 0)}%", j.get("checkpoint"),
-                 j.get("created_at"), j.get("error_message") or j.get("finished_at"))
-                for j in jobs
-            ])
-            self._fill_table(self.remote_evidence_table, [
-                (e.get("id"), e.get("original_name"), e.get("sha256"),
-                 f"{e.get('size_bytes', 0)} bytes",
-                 f"Finding #{e.get('finding_id')}" if e.get("finding_id")
-                 else (f"Test #{e.get('test_case_id')}" if e.get("test_case_id")
-                 else (f"Check #{e.get('scan_check_id')}" if e.get("scan_check_id")
-                 else "Unlinked")), e.get("created_at"))
-                for e in evidence
-            ])
-            self._fill_table(self.remote_activity_table, [
-                (a.get("created_at"), a.get("event"), a.get("details"))
-                for a in activities
-            ])
+        latest = jobs[0] if jobs else None
+        if latest:
+            self.remote_hunt_status.setText(
+                f"Hunt #{latest.get('id')} · {str(latest.get('status')).upper()} · "
+                f"{latest.get('progress', 0)}% · "
+                f"{latest.get('checkpoint') or 'Waiting for worker'}"
+            )
+            self.remote_hunt_progress.setValue(
+                max(0, min(100, int(latest.get("progress") or 0)))
+            )
+        else:
+            self.remote_hunt_status.setText("No hunts have been queued for this project.")
+            self.remote_hunt_progress.setValue(0)
 
-            latest = jobs[0] if jobs else None
-            if latest:
-                self.remote_hunt_status.setText(
-                    f"Hunt #{latest.get('id')} · {str(latest.get('status')).upper()} · "
-                    f"{latest.get('progress', 0)}% · "
-                    f"{latest.get('checkpoint') or 'Waiting for worker'}"
-                )
-                self.remote_hunt_progress.setValue(
-                    max(0, min(100, int(latest.get("progress") or 0)))
-                )
-            else:
-                self.remote_hunt_status.setText("No hunts have been queued for this project.")
-                self.remote_hunt_progress.setValue(0)
-
-            archived = str(project.get("status", "")).lower() == "deleted"
-            self.remote_archive_button.setEnabled(not archived)
-            self.remote_restore_button.setEnabled(archived)
-            hunt_jobs = [j for j in jobs if j.get("job_type") == "Automated hunt"]
-            has_policy = bool(latest_policy)
-            self.remote_analyze_button.setEnabled(
-                not archived and bool(project.get("programme_url")) and not active_jobs and not hunt_jobs
-            )
-            self.remote_analyze_button.setVisible(
-                not archived and not ready and not active_jobs and not hunt_jobs
-            )
-            self.remote_analyze_button.setText(
-                "RE-ANALYZE POLICY" if has_policy else "ANALYZE PROJECT  →"
-            )
-            self.remote_stage_status.setText(
-                f"PROJECT: {project.get('name', 'Selected project')}  ·  "
-                + ("STEP 3 — APPROVED SCOPE. Start the hunt when ready." if ready
-                   else ("STEP 2 — POLICY SAVED. Review the extracted rules and exact assets, then approve scope." if has_policy
-                         else "STEP 2 — Analyze the official programme policy to extract scope, restrictions and testing rules."))
-            )
-            self.remote_scope_hint.setVisible(ready)
-            self.remote_start_hunt_button.setVisible(
-                ready and not archived and (not hunt_jobs or bool(active_jobs))
-            )
-            self.remote_start_hunt_button.setEnabled(
-                ready and not archived and not active_jobs and not hunt_jobs
-            )
-            self.remote_start_hunt_button.setText(
-                f"⏳  HUNT ACTIVE ({len(active_jobs)})" if active_jobs
-                else ("HUNT FINISHED" if hunt_jobs else "▶  START HUNT")
-            )
-            self.remote_workspace_tabs.setVisible(bool(active_jobs) or bool(hunt_jobs) or bool(findings))
-            terminal_statuses = {"completed", "failed", "stopped"}
-            hunt_finished = bool(hunt_jobs) and all(
-                str(j.get("status", "")).lower() in terminal_statuses for j in hunt_jobs
-            )
-            self.remote_report_format.setVisible(hunt_finished)
-            self.remote_download_report_button.setVisible(hunt_finished)
-            self.remote_new_project_button.setVisible(not active_jobs)
-            if hunt_finished:
-                latest_hunt_id = max(int(j.get("id", 0)) for j in hunt_jobs)
-                notification_key = f"reports/notified/project_{project_id}"
-                previously_notified = str(self._settings.value(notification_key, ""))
-                failed_marker = f"failed:{latest_hunt_id}"
-                report_generation_failed = previously_notified == failed_marker
-                if previously_notified not in {str(latest_hunt_id), failed_marker}:
-                    failed = sum(str(j.get("status", "")).lower() != "completed" for j in hunt_jobs)
-                    try:
-                        report_dir = Path.home() / "Downloads"
-                        report_dir.mkdir(parents=True, exist_ok=True)
-                        safe_name = "".join(
-                            char if char.isalnum() or char in "-_" else "_"
-                            for char in str(project.get("name") or "bughunter-project")
-                        ).strip("_") or "bughunter-project"
-                        report_path = report_dir / (
-                            f"{safe_name}_hunt_{latest_hunt_id}_security_report.pdf"
-                        )
-                        report_bytes = self.client.download_report(project_id, "pdf")
-                        report_path.write_bytes(report_bytes)
-                        self._settings.setValue(notification_key, str(latest_hunt_id))
-                        message = (
-                            "Hunt finished. I generated your first-person PDF report and saved it to:\n"
-                            f"{report_path}\n\n"
-                            "You can also choose Word, HTML, Markdown or JSON below."
-                        )
-                        if failed:
-                            message += f"\n\n{failed} job(s) did not complete successfully; the report marks the coverage as partial."
-                        QMessageBox.information(self, "Hunt finished — report ready", message)
-                    except Exception as report_error:
-                        report_generation_failed = True
-                        self._settings.setValue(notification_key, failed_marker)
-                        self.remote_stage_status.setText(
-                            "HUNT FINISHED — automatic PDF generation failed. Use DOWNLOAD REPORT to retry."
-                        )
-                        QMessageBox.warning(
-                            self,
-                            "Hunt finished — report needs retry",
-                            "The hunt has ended, but the automatic PDF could not be saved. "
-                            "Use DOWNLOAD REPORT to generate it again.\n\n"
-                            f"{type(report_error).__name__}: {report_error}",
-                        )
-                if report_generation_failed:
-                    self.remote_stage_status.setText(
-                        "HUNT FINISHED — automatic PDF generation failed. Use DOWNLOAD REPORT to retry."
-                    )
-                else:
-                    self.remote_stage_status.setText(
-                        "HUNT FINISHED — your report is ready to download. "
-                        "The report separates confirmed findings, potential leads and incomplete checks."
-                    )
-            elif active_jobs:
+        archived = str(project.get("status", "")).lower() == "deleted"
+        self.remote_archive_button.setEnabled(not archived)
+        self.remote_restore_button.setEnabled(archived)
+        hunt_jobs = [j for j in jobs if j.get("job_type") == "Automated hunt"]
+        has_policy = bool(latest_policy)
+        self.remote_analyze_button.setEnabled(
+            not archived and bool(project.get("programme_url")) and not active_jobs and not hunt_jobs
+        )
+        self.remote_analyze_button.setVisible(
+            not archived and not ready and not active_jobs and not hunt_jobs
+        )
+        self.remote_analyze_button.setText(
+            "RE-ANALYZE POLICY" if has_policy else "ANALYZE PROJECT  →"
+        )
+        self.remote_stage_status.setText(
+            f"PROJECT: {project.get('name', 'Selected project')}  ·  "
+            + ("STEP 3 — APPROVED SCOPE. Start the hunt when ready." if ready
+               else ("STEP 2 — POLICY SAVED. Review the extracted rules and exact assets, then approve scope." if has_policy
+                     else "STEP 2 — Analyze the official programme policy to extract scope, restrictions and testing rules."))
+        )
+        self.remote_scope_hint.setVisible(ready)
+        self.remote_start_hunt_button.setVisible(
+            ready and not archived and (not hunt_jobs or bool(active_jobs))
+        )
+        self.remote_start_hunt_button.setEnabled(
+            ready and not archived and not active_jobs and not hunt_jobs
+        )
+        self.remote_start_hunt_button.setText(
+            f"⏳  HUNT ACTIVE ({len(active_jobs)})" if active_jobs
+            else ("HUNT FINISHED" if hunt_jobs else "▶  START HUNT")
+        )
+        self.remote_workspace_tabs.setVisible(bool(active_jobs) or bool(hunt_jobs) or bool(findings))
+        terminal_statuses = {"completed", "failed", "stopped"}
+        hunt_finished = bool(hunt_jobs) and all(
+            str(j.get("status", "")).lower() in terminal_statuses for j in hunt_jobs
+        )
+        self.remote_report_format.setVisible(hunt_finished)
+        self.remote_download_report_button.setVisible(hunt_finished)
+        self.remote_new_project_button.setVisible(not active_jobs)
+        if hunt_finished:
+            latest_hunt_id = max(int(j.get("id", 0)) for j in hunt_jobs)
+            notification_key = f"reports/notified/project_{project_id}"
+            previously_notified = str(self._settings.value(notification_key, ""))
+            failed_marker = f"failed:{latest_hunt_id}"
+            report_generation_failed = previously_notified == failed_marker
+            if previously_notified not in {str(latest_hunt_id), failed_marker}:
+                self._settings.setValue(notification_key, str(latest_hunt_id))
                 self.remote_stage_status.setText(
-                    "HUNT RUNNING IN THE CLOUD — progress and findings are updating below. "
-                    "You can close this desktop; the cloud worker continues independently."
+                    "HUNT FINISHED — report generation is available from the download controls below."
                 )
-            self.host_window.statusBar().showMessage(
-                f"Workspace synced · {len(approved)} approved assets · "
-                f"{len(endpoints)} endpoints · {len(findings)} findings"
+            if report_generation_failed:
+                self.remote_stage_status.setText(
+                    "HUNT FINISHED — automatic PDF generation failed. Use DOWNLOAD REPORT to retry."
+                )
+            else:
+                self.remote_stage_status.setText(
+                    "HUNT FINISHED — your report is ready to download. "
+                    "The report separates confirmed findings, potential leads and incomplete checks."
+                )
+        elif active_jobs:
+            self.remote_stage_status.setText(
+                "HUNT RUNNING IN THE CLOUD — progress and findings are updating below. "
+                "You can close this desktop; the cloud worker continues independently."
             )
+        self.host_window.statusBar().showMessage(
+            f"Workspace synced · {len(approved)} approved assets · "
+            f"{len(endpoints)} endpoints · {len(findings)} findings"
+        )
         except Exception as exc:
             self.host_window.statusBar().showMessage(
-                f"Workspace refresh failed: {type(exc).__name__}: {exc}"
+                f"Workspace render failed: {type(exc).__name__}: {exc}"
             )
-        finally:
-            self._refreshing = False
 
     def clear_workspace(self):
         for name in (
