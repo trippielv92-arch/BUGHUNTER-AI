@@ -82,9 +82,7 @@ class Window(QMainWindow):
 
  def login(self):
   username = self.username.text().strip()
-  if not ENABLE_LOCAL_MODE or (
-   self.remote_mode_checkbox is not None and self.remote_mode_checkbox.isChecked()
-  ):
+  if self.remote_mode_checkbox is None or not self.remote_mode_checkbox.isChecked():
    self.remote_login(username)
    return
   if not authenticate(self.db, username, self.password.text()):
