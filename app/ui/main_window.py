@@ -597,6 +597,8 @@ class Window(QMainWindow):
    return
 
   policy_text = self.remote_policy_text.toPlainText().strip()
+  self.remote_analyze_button.setEnabled(False)
+  self.remote_policy_summary.clear()
 
   self.remote_policy_status.setText(
    "Analyzing policy. No discovered target assets are being contacted."
@@ -655,6 +657,7 @@ class Window(QMainWindow):
     "and every candidate asset before approving the exact scope."
    )
    self.open_remote_project_tools()
+   self.remote_analyze_button.setEnabled(True)
 
    self.statusBar().showMessage(
     f"Policy analysis saved for remote project #{project_id}."
@@ -951,6 +954,18 @@ class Window(QMainWindow):
   try:
    payload = self.api_client.download_report(self.remote_project_id, fmt)
    Path(destination).write_bytes(payload)
+   workspace = getattr(self, "cloud_workspace", None)
+   if workspace is not None:
+    jobs = self.api_client.list_project_resource(self.remote_project_id, "jobs")
+    hunt_jobs = [job for job in jobs if job.get("job_type") == "Automated hunt"]
+    if hunt_jobs:
+     latest_hunt_id = max(int(job.get("id", 0)) for job in hunt_jobs)
+     workspace._settings.setValue(
+      f"reports/notified/project_{self.remote_project_id}", str(latest_hunt_id)
+     )
+    workspace.remote_stage_status.setText(
+     "HUNT FINISHED — report downloaded. You can download it again in another format."
+    )
    QMessageBox.information(
     self, "Report downloaded",
     f"Your first-person security report was saved to:\n{destination}\n\n"
@@ -978,7 +993,7 @@ class Window(QMainWindow):
   if not name:
    QMessageBox.warning(self, "Create project", "Enter a project name.")
    return
-  if not programme_url.startswith("https://"):
+  if not programme_url.lower().startswith("https://"):
    QMessageBox.warning(self, "Create project", "Enter the official programme URL beginning with https://.")
    return
 
