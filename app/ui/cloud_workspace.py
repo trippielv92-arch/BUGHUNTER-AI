@@ -227,15 +227,15 @@ class CloudWorkspace(QWidget):
           QTableWidget { gridline-color:#1d3048; alternate-background-color:#101e32; }
         """)
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(22, 18, 22, 14)
-        outer.setSpacing(14)
+        outer.setContentsMargins(28, 22, 28, 18)
+        outer.setSpacing(18)
 
         header = QHBoxLayout()
         brand = QVBoxLayout()
         title = QLabel("BUGHUNTER AI")
-        title.setStyleSheet("font-size:25px;font-weight:900;letter-spacing:1.5px;color:#55b8ff")
-        subtitle = QLabel("AUTHORIZED SECURITY RESEARCH · CLOUD OPERATIONS")
-        subtitle.setStyleSheet("font-size:10px;font-weight:700;letter-spacing:1.6px;color:#8ea6c4")
+        title.setStyleSheet("font-size:29px;font-weight:900;letter-spacing:2px;color:#67c5ff")
+        subtitle = QLabel("AI-POWERED BUG BOUNTY DISCOVERY  ·  AUTHORIZED PROGRAMMES ONLY")
+        subtitle.setStyleSheet("font-size:10px;font-weight:800;letter-spacing:1.8px;color:#91aac8")
         brand.addWidget(title)
         brand.addWidget(subtitle)
         header.addLayout(brand)
@@ -256,19 +256,22 @@ class CloudWorkspace(QWidget):
         header.addWidget(logout)
         outer.addLayout(header)
 
-        create_box = QGroupBox("NEW PROGRAMME PROJECT")
+        create_box = QGroupBox("01  ·  CREATE YOUR BUG BOUNTY PROJECT")
         self.remote_create_project_box = create_box
         create_grid = QGridLayout(create_box)
         self.remote_project_name = QLineEdit()
         self.remote_project_name.setPlaceholderText("Project name — e.g. Example Bug Bounty")
+        self.remote_project_name.setMinimumHeight(44)
         self.remote_project_url = QLineEdit()
         self.remote_project_url.setPlaceholderText("Official programme URL (https://...)")
+        self.remote_project_url.setMinimumHeight(44)
         create_grid.addWidget(QLabel("Project name"), 0, 0)
         create_grid.addWidget(QLabel("Programme URL"), 0, 1)
         create_grid.addWidget(self.remote_project_name, 1, 0)
         create_grid.addWidget(self.remote_project_url, 1, 1)
         create = QPushButton("＋  CREATE PROJECT")
-        create.setMinimumHeight(42)
+        create.setMinimumHeight(46)
+        create.setToolTip("Save the project name and official programme URL. This does not start testing.")
         create.clicked.connect(self.host_window.new_remote_project)
         create_grid.addWidget(create, 1, 2)
         self.remote_create_project_button = create
@@ -305,13 +308,18 @@ class CloudWorkspace(QWidget):
         work_layout.addLayout(project_header)
         self.remote_selected_project_title.hide()
 
+        self.remote_step_label = QLabel("STEP 1 OF 3   ·   CREATE PROJECT")
+        self.remote_step_label.setStyleSheet(
+            "color:#72c7ff;font-size:11px;font-weight:900;letter-spacing:1.5px;padding:4px 2px"
+        )
+        work_layout.addWidget(self.remote_step_label)
         self.remote_stage_status = QLabel(
-            "Create a project with its official programme URL and name, then analyze the programme policy."
+            "Enter the programme name and its official HTTPS URL. Create Project saves the workspace; it does not contact target assets."
         )
         self.remote_stage_status.setWordWrap(True)
         self.remote_stage_status.setStyleSheet(
-            "color:#b8cbe2;background:#12243a;border:1px solid #2a4564;"
-            "border-radius:9px;padding:12px;font-size:12px"
+            "color:#c7d8ec;background:#101f34;border:1px solid #315071;"
+            "border-radius:11px;padding:15px;font-size:13px"
         )
         work_layout.addWidget(self.remote_stage_status)
 
@@ -328,7 +336,8 @@ class CloudWorkspace(QWidget):
         self.remote_scope_hint.hide()
         self.remote_analyze_button = QPushButton("ANALYZE PROJECT  →")
         self.remote_analyze_button.setStyleSheet("background:#0d8b70")
-        self.remote_analyze_button.setMinimumHeight(42)
+        self.remote_analyze_button.setMinimumHeight(46)
+        self.remote_analyze_button.setToolTip("Retrieve and analyze the official programme policy, exclusions, scope candidates and testing restrictions.")
         self.remote_analyze_button.setEnabled(False)
         self.remote_analyze_button.hide()
         self.remote_analyze_button.clicked.connect(self.host_window.analyze_remote_program)
@@ -341,7 +350,8 @@ class CloudWorkspace(QWidget):
         actions.addWidget(policy)
         self.remote_start_hunt_button = QPushButton("▶  START HUNT")
         self.remote_start_hunt_button.setStyleSheet("background:#087f5b;font-size:14px")
-        self.remote_start_hunt_button.setMinimumHeight(42)
+        self.remote_start_hunt_button.setMinimumHeight(46)
+        self.remote_start_hunt_button.setToolTip("Queue background hunts only for assets whose exact scope has been explicitly approved.")
         self.remote_start_hunt_button.setEnabled(False)
         self.remote_start_hunt_button.hide()
         self.remote_start_hunt_button.clicked.connect(self.host_window.start_remote_hunt)
@@ -921,5 +931,5 @@ class CloudWorkspace(QWidget):
         self.remote_analyze_button.hide()
         self.remote_new_project_button.hide()
         self.remote_stage_status.setText(
-            "Create a project with its official programme URL and name, then analyze the programme policy."
+            "STEP 1 — Create Project: save the official programme URL and project name."
         )
