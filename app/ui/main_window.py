@@ -12,6 +12,7 @@ from app.database.db import SessionLocal,init_db
 from app.models.entities import User,Project,Finding,ScanCheck,ScopeAsset,Activity,Endpoint,TestCase,Evidence,AssessmentJob,FindingReview
 from app.services.auth import authenticate
 from app.services.api_client import APIClient, APIError
+from app.ui.cloud_workspace import CloudWorkspace
 from app.core.config import API_BASE_URL, ENABLE_LOCAL_MODE
 from app.services.workflows import add_endpoint,initialize_test_plan,update_test_case,recommend_endpoint_tests
 from app.services.evidence import add_evidence,list_evidence,verify_evidence, audit_project_evidence
@@ -140,143 +141,30 @@ class Window(QMainWindow):
    self.show_login()
    return
 
-  self.setWindowTitle("BugHunter AI — Hunt Workspace")
-  self.setMinimumSize(980, 700)
-  self.resize(1180, 820)
+  self.setWindowTitle("BugHunter AI — Research Operations")
+  self.setMinimumSize(1180, 780)
+  self.resize(1500, 960)
   self._build_remote_tools_dialog()
+  self.cloud_workspace = CloudWorkspace(self)
 
-  root = QWidget()
-  root.setObjectName("workspaceRoot")
-  root_layout = QVBoxLayout(root)
-  root_layout.setContentsMargins(26, 22, 26, 20)
-  root_layout.setSpacing(16)
+  # Keep the existing project/policy actions wired to the new workspace.
+  for name in (
+   "remote_project_name", "remote_project_url", "remote_project_list",
+   "remote_archived_list", "remote_selected_project_title",
+   "remote_project_details", "remote_scope_hint",
+   "remote_start_hunt_button", "remote_archive_button",
+   "remote_restore_button",
+  ):
+   setattr(self, name, getattr(self.cloud_workspace, name))
 
-  top = QHBoxLayout()
-  brand = QVBoxLayout()
-  title = QLabel("BUGHUNTER AI")
-  title.setStyleSheet("font-size:25px;font-weight:900;letter-spacing:1px;color:#48b4ff")
-  subtitle = QLabel("AUTOMATED BUG BOUNTY RESEARCH")
-  subtitle.setStyleSheet("font-size:10px;font-weight:700;letter-spacing:2px;color:#91a8c7")
-  brand.addWidget(title)
-  brand.addWidget(subtitle)
-  top.addLayout(brand)
-  top.addStretch(1)
-  account = QLabel(f"Signed in as {self.remote_account.get('username', 'Account')}")
-  account.setStyleSheet("color:#a9bdd7;padding:8px")
-  top.addWidget(account)
-  refresh = QPushButton("Refresh")
-  refresh.setStyleSheet("background:#263b58")
-  refresh.clicked.connect(self.refresh_remote_projects)
-  top.addWidget(refresh)
-  logout = QPushButton("Log out")
-  logout.setStyleSheet("background:#475569")
-  logout.clicked.connect(self.remote_logout)
-  top.addWidget(logout)
-  root_layout.addLayout(top)
-
-  intro = QLabel(
-   "Create a programme project, review its official policy, approve the exact "
-   "authorized scope, then start a cloud hunt. Hunts continue when this app closes."
-  )
-  intro.setWordWrap(True)
-  intro.setStyleSheet("color:#b7c8dc;font-size:13px;padding:4px 0 8px 0")
-  root_layout.addWidget(intro)
-
-  create_box = QGroupBox("1  ·  CREATE PROJECT")
-  create_box.setStyleSheet("QGroupBox{font-size:15px;font-weight:700;border:1px solid #29415f;border-radius:10px;margin-top:10px;padding:14px} QGroupBox::title{subcontrol-origin:margin;left:12px;padding:0 6px}")
-  create_layout = QGridLayout(create_box)
-  create_layout.setHorizontalSpacing(12)
-  create_layout.setVerticalSpacing(8)
-  self.remote_project_name = QLineEdit()
-  self.remote_project_name.setPlaceholderText("Project name (e.g. Example Bug Bounty)")
-  self.remote_project_url = QLineEdit()
-  self.remote_project_url.setPlaceholderText("Official programme URL — https://...")
-  create_layout.addWidget(QLabel("Project name"), 0, 0)
-  create_layout.addWidget(self.remote_project_name, 1, 0)
-  create_layout.addWidget(QLabel("Programme URL"), 0, 1)
-  create_layout.addWidget(self.remote_project_url, 1, 1)
-  create_button = QPushButton("CREATE PROJECT")
-  create_button.setMinimumHeight(42)
-  create_button.clicked.connect(self.new_remote_project)
-  create_layout.addWidget(create_button, 1, 2)
-  root_layout.addWidget(create_box)
-
-  body = QHBoxLayout()
-  body.setSpacing(14)
-  projects_box = QGroupBox("2  ·  YOUR PROJECTS")
-  projects_box.setStyleSheet(create_box.styleSheet())
-  projects_layout = QVBoxLayout(projects_box)
-  self.remote_project_list = QListWidget()
-  self.remote_project_list.setMinimumWidth(285)
-  self.remote_project_list.setMinimumHeight(260)
-  self.remote_project_list.itemClicked.connect(self.select_remote_project)
-  projects_layout.addWidget(QLabel("Active projects"))
-  projects_layout.addWidget(self.remote_project_list, 3)
-  projects_layout.addWidget(QLabel("Archived projects"))
-  self.remote_archived_list = QListWidget()
-  self.remote_archived_list.setMaximumHeight(105)
-  self.remote_archived_list.itemClicked.connect(self.select_remote_archived_project)
-  projects_layout.addWidget(self.remote_archived_list, 1)
-  body.addWidget(projects_box, 1)
-
-  detail_box = QGroupBox("3  ·  HUNT WORKSPACE")
-  detail_box.setStyleSheet(create_box.styleSheet())
-  detail_layout = QVBoxLayout(detail_box)
-  self.remote_selected_project_title = QLabel("No project selected")
-  self.remote_selected_project_title.setStyleSheet("font-size:20px;font-weight:800;color:#e5edf8")
-  detail_layout.addWidget(self.remote_selected_project_title)
-  self.remote_project_details = QTextEdit()
-  self.remote_project_details.setReadOnly(True)
-  self.remote_project_details.setMinimumHeight(150)
-  self.remote_project_details.setMaximumHeight(205)
-  self.remote_project_details.setPlaceholderText("Create or select a project to see its status.")
-  detail_layout.addWidget(self.remote_project_details)
-
-  action_row = QHBoxLayout()
-  review_button = QPushButton("REVIEW POLICY & SCOPE")
-  review_button.setStyleSheet("background:#334f73")
-  review_button.setMinimumHeight(42)
-  review_button.clicked.connect(self.open_remote_project_tools)
-  action_row.addWidget(review_button)
-  self.remote_start_hunt_button = QPushButton("START CLOUD HUNT")
-  self.remote_start_hunt_button.setMinimumHeight(42)
-  self.remote_start_hunt_button.setStyleSheet("background:#12845a;font-size:14px;font-weight:800")
-  self.remote_start_hunt_button.setEnabled(False)
-  self.remote_start_hunt_button.clicked.connect(self.start_remote_hunt)
-  action_row.addWidget(self.remote_start_hunt_button)
-  detail_layout.addLayout(action_row)
-
-  management_row = QHBoxLayout()
-  self.remote_archive_button = QPushButton("Archive project")
-  self.remote_archive_button.setStyleSheet("background:#475569")
-  self.remote_archive_button.clicked.connect(self.archive_remote_project)
-  management_row.addWidget(self.remote_archive_button)
-  self.remote_restore_button = QPushButton("Restore archived")
-  self.remote_restore_button.setStyleSheet("background:#475569")
-  self.remote_restore_button.clicked.connect(self.restore_remote_project)
-  management_row.addWidget(self.remote_restore_button)
-  detail_layout.addLayout(management_row)
-
-  self.remote_scope_hint = QLabel(
-   "Next step: review the programme policy. No target is tested until you explicitly approve scope."
-  )
-  self.remote_scope_hint.setWordWrap(True)
-  self.remote_scope_hint.setStyleSheet("color:#e9c46a;padding:8px;background:#18263a;border-radius:6px")
-  detail_layout.addWidget(self.remote_scope_hint)
-  detail_layout.addStretch(1)
-  body.addWidget(detail_box, 2)
-  root_layout.addLayout(body, 1)
-
-  footer = QLabel(
-   "Cloud execution  ·  Persistent background worker  ·  Human-approved scope  ·  "
-   "Evidence-backed results"
-  )
-  footer.setStyleSheet("color:#7188a6;font-size:11px;padding-top:5px")
-  root_layout.addWidget(footer)
-
-  self.setCentralWidget(root)
-  self.statusBar().showMessage("Connected to central BugHunter AI API.")
+  self.setCentralWidget(self.cloud_workspace)
+  self.statusBar().showMessage("Connected to the central BugHunter AI API.")
   self.refresh_remote_projects()
+
+ def refresh_remote_workspace(self):
+  workspace = getattr(self, "cloud_workspace", None)
+  if workspace is not None:
+   workspace.refresh_workspace()
 
  def _build_remote_tools_dialog(self):
   dialog = QDialog(self)
@@ -533,6 +421,21 @@ class Window(QMainWindow):
 
   queued = []
   try:
+   existing_jobs = self.api_client.list_project_resource(project_id, "jobs")
+   active_jobs = [
+    job for job in existing_jobs
+    if job.get("job_type") == "Automated hunt"
+    and job.get("status") in {"queued", "running"}
+   ]
+   if active_jobs:
+    QMessageBox.information(
+     self, "Hunt already active",
+     f"This project already has {len(active_jobs)} queued or running hunt(s). "
+     "Their progress is visible in the Hunt jobs tab."
+    )
+    self.refresh_remote_workspace()
+    return
+
    assets = self.api_client.list_project_resource(project_id, "assets")
    approved = [
     asset for asset in assets
@@ -560,14 +463,17 @@ class Window(QMainWindow):
    self.statusBar().showMessage(
     f"Queued {len(queued)} cloud hunt(s) for project #{project_id}."
    )
+   self.refresh_remote_workspace()
    QMessageBox.information(
     self,
     "Cloud hunts queued",
     f"Queued {len(queued)} independent cloud hunt job(s):\n\n"
     f"{summary}\n\n"
-    "They continue independently of this desktop. Current automated "
-    "coverage is passive discovery and bounded HTTPS GET inventory, "
-    "not comprehensive vulnerability verification.",
+    "They continue independently of this desktop. The worker performs "
+    "policy-aware, bounded HTTPS GET assessment: attack-surface and API "
+    "discovery, security-configuration checks, response and client-side "
+    "analysis, and evidence correlation. It does not perform destructive "
+    "or state-changing exploit tests; potential leads still require review.",
    )
   except APIError as exc:
    if queued:
@@ -906,43 +812,11 @@ class Window(QMainWindow):
    )
 
  def refresh_remote_projects(self):
-  if not self.api_client or not self.api_client.authenticated:
+  workspace = getattr(self, "cloud_workspace", None)
+  if workspace is not None:
+   workspace.refresh_projects()
+  elif not self.api_client or not self.api_client.authenticated:
    return
-
-  try:
-   projects = self.api_client.list_projects()
-   if not isinstance(projects, list):
-    raise APIError(502, "The server returned an invalid project list.")
-
-   self.remote_project_list.clear()
-   self.remote_archived_list.clear()
-
-   for project in projects:
-    project_id = project.get("id")
-    name = project.get("name", "Unnamed project")
-    status = str(project.get("status", "unknown")).lower()
-
-    if status == "deleted":
-     item = QListWidgetItem(f"{project_id} — {name} [ARCHIVED]")
-     item.setData(Qt.UserRole, project_id)
-     self.remote_archived_list.addItem(item)
-    else:
-     item = QListWidgetItem(f"{project_id} — {name} [{status.upper()}]")
-     item.setData(Qt.UserRole, project_id)
-     self.remote_project_list.addItem(item)
-
-   self.remote_project_details.setPlainText(
-    f"Server returned {len(projects)} project(s) for account "
-    f"{self.remote_account.get('username', 'unknown')}."
-   )
-   self.remote_project_id = None
-   self.remote_project = None
-   self.remote_selected_project_title.setText("Select a project")
-   self.remote_scope_hint.setText("Create or select a project, review its official policy, and approve the exact authorized scope before hunting.")
-   self.remote_start_hunt_button.setEnabled(False)
-   self.statusBar().showMessage(f"Loaded {len(projects)} remote project(s).")
-  except APIError as exc:
-   QMessageBox.warning(self, "Refresh projects", str(exc))
 
  def new_remote_project(self):
   if not self.api_client:
@@ -972,6 +846,7 @@ class Window(QMainWindow):
     f"Programme URL: {project.get('programme_url', '') or 'Not supplied'}\n\n"
     "The project is stored on the central API server."
    )
+   self.refresh_remote_workspace()
    QMessageBox.information(
     self, "Project created",
     f"Remote project #{project['id']} was created successfully."
@@ -1018,6 +893,7 @@ class Window(QMainWindow):
     f"Selected remote project #{project_id}: {project.get('name')}"
    )
    self.refresh_remote_test_credentials()
+   self.refresh_remote_workspace()
   except APIError as exc:
    QMessageBox.warning(self, "Project details", str(exc))
 
@@ -1313,6 +1189,9 @@ class Window(QMainWindow):
    QMessageBox.warning(self, "Restore project", str(exc))
 
  def remote_logout(self):
+  workspace = getattr(self, "cloud_workspace", None)
+  if workspace is not None:
+   workspace.timer.stop()
   if self.api_client:
    self.api_client.logout()
    self.api_client.close()
