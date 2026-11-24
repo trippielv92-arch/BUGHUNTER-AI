@@ -542,6 +542,7 @@ class Window(QMainWindow):
     raise APIError(409, "The server did not confirm scope approval.")
 
    self.remote_tools_dialog.accept()
+   self.cloud_workspace.remote_step_label.setText("STEP 3 OF 3   ·   READY TO START HUNT")
    self.remote_stage_status.setText(
     "SCOPE APPROVED — the exact included assets are saved. You can now start the cloud hunt."
    )
@@ -652,8 +653,7 @@ class Window(QMainWindow):
   project = self.remote_project or {}
   project_id = self.remote_project_id
   self.remote_policy_status.setText(
-   "Policy analysis saved. Candidate assets require independent review; "
-   "none have been approved."
+   "Programme policy retrieved and analyzed. Candidate assets require independent review; none have been approved."
   )
   analysis = result.get("analysis") or {}
   extracted_text = analysis.get("policy_text", "")
@@ -685,6 +685,9 @@ class Window(QMainWindow):
    summary.extend(f"  • {entry}" for entry in entries[:12])
   summary += [
    "",
+   "PROGRAMME CHECK RESULT",
+   f"Official programme page retrieved: {'YES' if analysis.get('source') == 'public webpage' else 'NO — manual policy text supplied'}",
+   "This is a policy and scope extraction, not independent proof that a bounty is currently active or that the page owner is the programme operator.",
    "SCOPE CANDIDATES ARE NOT AUTHORIZATION.",
    "Excluded assets override conflicting inclusions. Wildcards, CIDRs, path-limited URLs and ambiguous assets require separate human interpretation.",
    "",
@@ -693,9 +696,9 @@ class Window(QMainWindow):
   summary.extend(f"• {warning}" for warning in analysis.get("warnings", []))
   self.remote_project_details.setPlainText("\n".join(summary))
   self.remote_policy_summary.setPlainText("\n".join(summary))
+  self.cloud_workspace.remote_step_label.setText("STEP 2 OF 3   ·   REVIEW PROGRAMME & SCOPE")
   self.remote_stage_status.setText(
-   "POLICY ANALYZED AND SAVED — review the original policy, extracted do's and don'ts, "
-   "and every candidate asset before approving the exact scope."
+   "ANALYSIS COMPLETE — review the official policy text, bounty eligibility clues, exclusions, rate limits and exact asset candidates. Explicitly approve only the assets you have verified are authorized. Start Hunt remains locked until scope approval is confirmed."
   )
   self.open_remote_project_tools()
   self.remote_analyze_button.setEnabled(True)
@@ -1092,8 +1095,9 @@ class Window(QMainWindow):
   self.remote_create_project_box.hide()
   self.remote_analyze_button.show()
   self.remote_selected_project_title.show()
+  self.cloud_workspace.remote_step_label.setText("STEP 2 OF 3   ·   ANALYZE PROGRAMME")
   self.remote_stage_status.setText(
-   "PROJECT CREATED — next, press ANALYZE PROJECT. The programme policy will be retrieved and saved before any target testing."
+   "PROJECT CREATED — next, press ANALYZE PROJECT. BugHunter AI will retrieve the programme page, inspect its bounty rules, identify included and excluded assets, and record testing restrictions. No target testing starts during this step."
   )
   self.remote_analyze_button.setEnabled(True)
   self.remote_workspace_tabs.hide()
