@@ -462,6 +462,7 @@ class Window(QMainWindow):
     f"Remote scope approved: {len(included)} included asset(s). "
     "Excluded assets remain unapproved."
    )
+   self.refresh_remote_workspace()
   except APIError as exc:
    QMessageBox.warning(self, "Approve scope", str(exc))
   except Exception as exc:
@@ -1170,6 +1171,7 @@ class Window(QMainWindow):
     "Historical records remain on the server. Restoring returns the project "
     "to draft status and requires scope review and approval again."
    )
+   self.refresh_remote_workspace()
    self.refresh_remote_workspace()
   except APIError as exc:
    QMessageBox.warning(self, "Archived project", str(exc))
