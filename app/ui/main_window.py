@@ -1179,18 +1179,18 @@ class Window(QMainWindow):
  def archive_remote_project(self):
   project = self.remote_project
   if not project or not self.remote_project_id:
-   QMessageBox.warning(self, "Archive project", "Select an active remote project first.")
+   QMessageBox.warning(self, "Delete project", "Select an active remote project first.")
    return
 
   if str(project.get("status", "")).lower() == "deleted":
-   QMessageBox.warning(self, "Archive project", "This project is already archived.")
+   QMessageBox.warning(self, "Delete project", "This project is already retired.")
    return
 
   name = project.get("name", "")
   answer = QMessageBox.question(
-   self, "Archive remote project",
-   f"Archive '{name}' on the central server?\n\n"
-   "Historical findings and evidence are retained. The project becomes read-only.",
+   self, "Delete project",
+   f"Delete '{name}' from your active projects?\n\n"
+   "This is a recoverable deletion: findings, evidence and history are retained in Archived. You can restore the project later.",
    QMessageBox.Yes | QMessageBox.No,
    QMessageBox.No,
   )
@@ -1198,7 +1198,7 @@ class Window(QMainWindow):
    return
 
   confirmation, ok = QInputDialog.getText(
-   self, "Confirm archive",
+   self, "Confirm deletion",
    f"Type the exact project name to confirm:\n{name}"
   )
   if not ok:
@@ -1209,7 +1209,7 @@ class Window(QMainWindow):
    self.remote_project_id = None
    self.remote_project = None
    self.refresh_remote_projects()
-   QMessageBox.information(self, "Project archived", f"'{name}' was archived on the server.")
+   QMessageBox.information(self, "Project deleted", f"'{name}' was moved to Archived. Historical records are retained.")
   except APIError as exc:
    QMessageBox.warning(self, "Archive project", str(exc))
 
