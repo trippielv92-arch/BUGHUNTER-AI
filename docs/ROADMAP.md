@@ -44,7 +44,7 @@ The `release/hardening-v0.4.0` branch adds the following regression-protected ch
 - [x] Keep transport/database exception text out of job records because it can contain secrets or request details.
 - [x] Include finding category in exact duplicate identity so different vulnerability classes on the same asset are not collapsed.
 - [x] Add two-account project/child-record isolation regression tests.
-- [x] Add finding identity/correlation and retry-boundary regression tests.
+- [x] Add finding identity/correlation, evidence-tamper, assessment-planner, tenant-isolation, heartbeat and retry-boundary regression tests.
 - [ ] Obtain a passing full CI run and inspect the generated Debian package.
 - [ ] Verify production API, worker, database connectivity and account isolation against the deployed environment.
 - [ ] Complete worker heartbeat/lease observability and controlled retry recovery for process/database interruption.
