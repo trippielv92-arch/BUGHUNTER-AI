@@ -219,6 +219,7 @@ class Window(QMainWindow):
    "remote_restore_button", "remote_analyze_button",
    "remote_report_format", "remote_download_report_button",
    "remote_stage_status", "remote_create_project_button",
+   "remote_create_project_box", "remote_new_project_button",
    "remote_workspace_tabs", "remote_findings_table",
   ):
    setattr(self, name, getattr(self.cloud_workspace, name))
@@ -934,6 +935,32 @@ class Window(QMainWindow):
     self, "Policy history",
     f"Unexpected error: {exc}"
    )
+
+ def begin_new_remote_project(self):
+  self.remote_project_id = None
+  self.remote_project = None
+  self.remote_project_list.clearSelection()
+  self.remote_project_name.clear()
+  self.remote_project_url.clear()
+  self.remote_policy_text.clear()
+  self.remote_policy_summary.clear()
+  self.remote_project_details.clear()
+  self.remote_tools_dialog.hide()
+  self.remote_create_project_box.show()
+  self.remote_create_project_button.setEnabled(True)
+  self.remote_analyze_button.hide()
+  self.remote_start_hunt_button.hide()
+  self.remote_start_hunt_button.setEnabled(False)
+  self.remote_scope_hint.hide()
+  self.remote_report_format.hide()
+  self.remote_download_report_button.hide()
+  self.remote_new_project_button.hide()
+  self.remote_workspace_tabs.hide()
+  self.remote_selected_project_title.hide()
+  self.remote_stage_status.setText(
+   "Create a project with its official programme URL and name, then analyze the programme policy."
+  )
+  self.statusBar().showMessage("Ready for a new authorized programme project.")
 
  def download_remote_report(self):
   if not self.api_client or not self.remote_project_id:
