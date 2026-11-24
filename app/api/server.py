@@ -5,10 +5,13 @@ Account creation intentionally remains a terminal-only operation.
 import os
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import jwt
 from jwt import InvalidTokenError
 from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.responses import Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -1292,3 +1295,85 @@ def delete_researcher_owned_resource_api(
         raise HTTPException(status_code=404, detail="Owned resource not found.")
     db.delete(resource)
     db.commit()
+
+
+@app.get("/api/v1/projects/{project_id}/report")
+def download_project_report_api(
+    project_id: int,
+    format: str = "pdf",
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    """Generate and download a report after every automated hunt job has ended."""
+    project = _require_owned_project(db, project_id)
+    if project.status == "deleted":
+        raise HTTPException(status_code=409, detail="Archived projects are read-only.")
+
+    allowed_formats = {
+        "pdf": ("pdf", "application/pdf"),
+        "docx": (
+            "docx",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ),
+        "html": ("html", "text/html; charset=utf-8"),
+        "markdown": ("md", "text/markdown; charset=utf-8"),
+        "json": ("json", "application/json"),
+    }
+    selected = allowed_formats.get(str(format or "").lower())
+    if selected is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported report format. Choose PDF, DOCX, HTML, Markdown or JSON.",
+        )
+
+    jobs = db.scalars(
+        select(AssessmentJob)
+        .where(
+            AssessmentJob.project_id == project_id,
+            AssessmentJob.job_type == "Automated hunt",
+        )
+        .order_by(AssessmentJob.created_at.desc(), AssessmentJob.id.desc())
+    ).all()
+    if not jobs:
+        raise HTTPException(status_code=409, detail="No automated hunt exists for this project.")
+
+    active = [
+        job for job in jobs
+        if job.status in {"queued", "running", "paused"}
+    ]
+    if active:
+        raise HTTPException(
+            status_code=409,
+            detail="The report is not ready while one or more hunt jobs are still active.",
+        )
+
+    extension, media_type = selected
+    safe_name = "".join(
+        char if char.isalnum() or char in "-_" else "_"
+        for char in (project.name or "bughunter-project")
+    ).strip("_") or "bughunter-project"
+
+    try:
+        from app.services.reports import export_report
+
+        with TemporaryDirectory(prefix="bughunter-report-") as temp_dir:
+            destination = Path(temp_dir) / f"{safe_name}_security_report.{extension}"
+            export_report(db, project_id, destination, str(format).lower())
+            payload = destination.read_bytes()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not generate the project report: {type(exc).__name__}.",
+        ) from exc
+
+    return Response(
+        content=payload,
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe_name}_security_report.{extension}"',
+            "Cache-Control": "no-store",
+        },
+    )
