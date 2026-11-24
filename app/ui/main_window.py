@@ -1211,7 +1211,7 @@ class Window(QMainWindow):
    self.refresh_remote_projects()
    QMessageBox.information(self, "Project deleted", f"'{name}' was moved to Archived. Historical records are retained.")
   except APIError as exc:
-   QMessageBox.warning(self, "Archive project", str(exc))
+   QMessageBox.warning(self, "Delete project", str(exc))
 
  def restore_remote_project(self):
   project = self.remote_project
