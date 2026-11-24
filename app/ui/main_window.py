@@ -503,6 +503,7 @@ class Window(QMainWindow):
     )
     if skipped_candidates:
      message += "\n\nCandidates not added:\n" + "\n".join(skipped_candidates[:12])
+    self.refresh_remote_workspace()
     QMessageBox.warning(self, "Approve scope", message)
     return
 
@@ -532,6 +533,7 @@ class Window(QMainWindow):
      "Proposed assets are saved but remain unapproved. Review the list and "
      "click APPROVE EXACT SCOPE when ready."
     )
+    self.refresh_remote_workspace()
     return
 
    self.api_client.approve_scope(project_id, policy_text)
