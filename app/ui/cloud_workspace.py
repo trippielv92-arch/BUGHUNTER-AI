@@ -590,6 +590,7 @@ class CloudWorkspace(QWidget):
             archived = str(project.get("status", "")).lower() == "deleted"
             self.remote_archive_button.setEnabled(not archived)
             self.remote_restore_button.setEnabled(archived)
+            hunt_jobs = [j for j in jobs if j.get("job_type") == "Automated hunt"]
             has_policy = bool(latest_policy)
             self.remote_analyze_button.setEnabled(
                 not archived and bool(project.get("programme_url")) and not active_jobs and not hunt_jobs
@@ -606,7 +607,6 @@ class CloudWorkspace(QWidget):
                    else ("STEP 2 — POLICY SAVED. Review the extracted rules and exact assets, then approve scope." if has_policy
                          else "STEP 2 — Analyze the official programme policy to extract scope, restrictions and testing rules."))
             )
-            hunt_jobs = [j for j in jobs if j.get("job_type") == "Automated hunt"]
             self.remote_scope_hint.setVisible(ready)
             self.remote_start_hunt_button.setVisible(
                 ready and not archived and (not hunt_jobs or bool(active_jobs))
