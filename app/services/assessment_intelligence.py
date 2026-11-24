@@ -244,10 +244,36 @@ def _make_scenarios(endpoint, context):
             "Medium",
         )
 
+    if context["query_names"] or body:
+        add(
+            "Injection",
+            "SQL injection resistance and parameterization review",
+            "Query parameters or documented request-body fields are present.",
+            "High",
+        )
+        add(
+            "XSS",
+            "Reflected and DOM XSS context review",
+            "User-controlled query or documented request-body fields are present.",
+            "High",
+        )
+
+    redirect_names = names & {
+        "redirect", "redirect_uri", "return_url", "next",
+        "continue", "destination",
+    }
+    if redirect_names:
+        add(
+            "Open Redirect",
+            "Redirect destination allowlist and validation",
+            "A redirect-like parameter name was detected.",
+            "High",
+        )
+
     if names & URL_NAMES:
         add(
             "SSRF",
-            "Server-side URL fetching and redirect destination review",
+            "Server-side URL fetching and destination validation",
             "URL, callback, webhook or redirect parameter name detected.",
             "High",
         )
