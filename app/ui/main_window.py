@@ -964,50 +964,61 @@ class Window(QMainWindow):
  def new_remote_project(self):
   if not self.api_client:
    return
-
   name = self.remote_project_name.text().strip()
   programme_url = self.remote_project_url.text().strip()
-
   if not name:
    QMessageBox.warning(self, "Create project", "Enter a project name.")
    return
   if not programme_url.lower().startswith("https://"):
    QMessageBox.warning(self, "Create project", "Enter the official programme URL beginning with https://.")
    return
+  self.remote_create_project_button.setEnabled(False)
+  self.remote_stage_status.setText("Creating the project securely on the cloud API…")
+  self._create_project_thread = RemoteAPICallThread(
+   self.api_client.base_url, self.api_client._token,
+   "create_project", (name, programme_url), {}, self,
+  )
+  self._create_project_thread.succeeded.connect(self._remote_project_created)
+  self._create_project_thread.failed.connect(self._remote_project_create_failed)
+  self._create_project_thread.start()
 
-  try:
-   project = self.api_client.create_project(name, programme_url)
-   self.remote_project_name.clear()
-   self.remote_project_url.clear()
-   self.refresh_remote_projects()
-   self.remote_project_id = int(project["id"])
-   self.remote_project = project
-   self.remote_policy_text.clear()
-   self.remote_selected_project_title.setText(project.get("name", "New project"))
-   self.remote_scope_hint.setText("Project created. Review the policy analysis and approve the exact included assets before starting a hunt.")
-   self.remote_project_details.setPlainText(
-    f"Created remote project #{project['id']}\n"
-    f"Name: {project['name']}\n"
-    f"Status: {project['status']}\n"
-    f"Programme URL: {project.get('programme_url', '') or 'Not supplied'}\n\n"
-    "The project is stored on the central API server."
-   )
-   self.remote_create_project_box.hide()
-   self.remote_analyze_button.show()
-   self.remote_selected_project_title.show()
-   self.remote_stage_status.setText(
-    "PROJECT CREATED — next, press ANALYZE PROJECT. The programme policy will be retrieved and saved before any target testing."
-   )
-   self.remote_analyze_button.setEnabled(True)
-   self.remote_workspace_tabs.hide()
-   self.remote_start_hunt_button.hide()
-   self.refresh_remote_workspace()
-   QMessageBox.information(
-    self, "Project created",
-    f"Project '{project.get('name')}' was created. Next step: Analyze Project."
-   )
-  except APIError as exc:
-   QMessageBox.warning(self, "Create project", str(exc))
+ def _remote_project_created(self, project):
+  self.remote_project_name.clear()
+  self.remote_project_url.clear()
+  self.remote_project_id = int(project["id"])
+  self.remote_project = project
+  self.remote_policy_text.clear()
+  self.remote_selected_project_title.setText(project.get("name", "New project"))
+  self.remote_scope_hint.setText(
+   "Project created. Review the policy analysis and approve the exact included assets before starting a hunt."
+  )
+  self.remote_project_details.setPlainText(
+   f"Created remote project #{project['id']}\n"
+   f"Name: {project['name']}\n"
+   f"Status: {project['status']}\n"
+   f"Programme URL: {project.get('programme_url', '') or 'Not supplied'}\n\n"
+   "The project is stored on the central API server."
+  )
+  self.remote_create_project_box.hide()
+  self.remote_analyze_button.show()
+  self.remote_selected_project_title.show()
+  self.remote_stage_status.setText(
+   "PROJECT CREATED — next, press ANALYZE PROJECT. The programme policy will be retrieved and saved before any target testing."
+  )
+  self.remote_analyze_button.setEnabled(True)
+  self.remote_workspace_tabs.hide()
+  self.remote_start_hunt_button.hide()
+  self.remote_create_project_button.setEnabled(True)
+  self.refresh_remote_workspace()
+  QMessageBox.information(
+   self, "Project created",
+   f"Project '{project.get('name')}' was created. Next step: Analyze Project."
+  )
+
+ def _remote_project_create_failed(self, message):
+  self.remote_create_project_button.setEnabled(True)
+  self.remote_stage_status.setText("PROJECT CREATION FAILED — check the API connection and retry.")
+  QMessageBox.warning(self, "Create project", message)
 
  def select_remote_project(self, item):
   project_id = item.data(Qt.UserRole)
