@@ -1,26 +1,36 @@
-# Roadmap
+# Product roadmap
 
-## Current foundation
-- [x] Local owner accounts and account-isolated SQLite projects.
-- [x] Manual programme policy review and exact included-scope approval.
-- [x] Passive DNS and Certificate Transparency candidate discovery.
-- [x] Bounded HTTPS website discovery and endpoint/API inventory.
-- [x] Metadata-driven manual vulnerability assessment recommendations.
-- [x] Potential finding/evidence records and conservative evidence correlation.
-- [x] Persistent local hunt queue, systemd worker integration, progress polling, cooperative stop and restart recovery from the beginning.
+## Product definition
 
-## Remaining milestones
-1. **Scope intelligence:** exclusions, explicit wildcard/CIDR semantics, programme expiry and rate-limit enforcement. Never convert a wildcard or discovered hostname into authorization without human review.
-2. **Worker reliability:** exact checkpoints, safe pause/resume, retry policy, worker health visibility and consistent database configuration.
-3. **Vulnerability assessment:** permission-gated, non-destructive verification for access control, IDOR, authentication, injection indicators, SSRF indicators, API authorization and business logic. Sensitive tests require controlled accounts, synthetic data or staging.
-4. **Finding lifecycle:** reproducible evidence, confidence rationale, duplicate review, manual confirmation and remediation tracking.
-5. **Project dashboard:** unified view of assets, endpoints, job progress, assessment coverage, findings and evidence.
-6. **Multi-computer architecture:** central API, PostgreSQL, authenticated worker registration, tenant isolation and remote job orchestration.
-7. **Production hardening:** encryption at rest, stronger audit integrity, threat modeling, integration tests, packaging and recovery documentation.
+BugHunter AI is one cloud-connected Parrot desktop client backed by an authenticated API, a PostgreSQL source of truth and a persistent background hunt worker. Do not reintroduce a second normal local workspace or duplicate project stores.
 
-## Safety requirements
+## Implemented foundation
+
+- [x] Parrot desktop sign-in to the central API.
+- [x] Authenticated API with Argon2 account passwords and short-lived JWTs.
+- [x] Account-scoped projects and project resources.
+- [x] Programme policy analysis, candidate review and exact human-approved scope.
+- [x] Durable cloud hunt jobs and a separate worker process.
+- [x] Passive DNS/Certificate Transparency candidate discovery.
+- [x] Bounded same-host HTTPS discovery and endpoint/API inventory.
+- [x] Evidence records, potential findings and conservative correlation.
+- [x] Debian packaging workflow for Parrot Linux.
+
+## Release gates — do these in order
+
+1. **Runtime readiness:** prove the production health endpoint, account login, database reads/writes and worker startup with a harmless test job.
+2. **Single-workspace cleanup:** keep cloud mode as the normal UI and launcher; make local SQLite developer-only; keep README, setup scripts and package behavior consistent.
+3. **Worker reliability:** health heartbeat, lease/heartbeat recovery, bounded retries, cancellation and safe restart semantics.
+4. **Vulnerability verification:** implement explicit, scope-gated, non-destructive checks with controlled test accounts or synthetic data; preserve request/response evidence and confidence rationale.
+5. **Finding quality:** deterministic deduplication, reproducible verification steps, evidence integrity, review/confirmation lifecycle.
+6. **Security hardening:** tenant-isolation review, database RLS/policies, secrets rotation, encrypted backups, audit integrity and monitoring.
+7. **Release:** build and install the Debian package on Parrot, smoke-test login/project/scope/hunt/results, publish a versioned artifact and update installation instructions.
+
+## Non-negotiable safety requirements
+
 - Scope exclusions always override inclusions.
-- Discovered assets remain candidates until manually reviewed and explicitly approved.
-- No automatic vulnerability confirmation or duplicate merging.
-- No destructive or state-changing tests without explicit authorization and controlled test data.
-- Worker restart recovery must preserve job history and never claim exact resume when only a restart-from-beginning occurred.
+- A discovered asset is never authorization.
+- Require explicit approval before testing a target.
+- No destructive, state-changing or high-impact tests without explicit authorization and controlled test data.
+- Never mark a finding confirmed solely from a heuristic or response difference.
+- Never claim a hunt resumed at an exact checkpoint unless that checkpoint was actually restored.
