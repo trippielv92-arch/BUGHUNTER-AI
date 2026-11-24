@@ -89,6 +89,77 @@ class ReportDownloadThread(QThread):
             client.close()
 
 
+class RemoteAPICallThread(QThread):
+    succeeded = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, base_url, token, method, args=(), kwargs=None, parent=None):
+        super().__init__(parent)
+        self.base_url = base_url
+        self.token = token
+        self.method = method
+        self.args = tuple(args)
+        self.kwargs = dict(kwargs or {})
+
+    def run(self):
+        client = APIClient(self.base_url, timeout=30.0)
+        client._token = self.token
+        try:
+            result = getattr(client, self.method)(*self.args, **self.kwargs)
+            self.succeeded.emit(result)
+        except Exception as exc:
+            self.failed.emit(f"{type(exc).__name__}: {exc}")
+        finally:
+            client.close()
+
+
+class HuntQueueThread(QThread):
+    succeeded = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, base_url, token, project_id, parent=None):
+        super().__init__(parent)
+        self.base_url = base_url
+        self.token = token
+        self.project_id = int(project_id)
+
+    def run(self):
+        client = APIClient(self.base_url, timeout=20.0)
+        client._token = self.token
+        queued = []
+        try:
+            jobs = client.list_project_resource(self.project_id, "jobs")
+            active = [
+                job for job in jobs
+                if job.get("job_type") == "Automated hunt"
+                and job.get("status") in {"queued", "running", "paused"}
+            ]
+            if active:
+                self.succeeded.emit({"already_active": len(active), "queued": []})
+                return
+            assets = client.list_project_resource(self.project_id, "assets")
+            approved = [
+                asset for asset in assets
+                if asset.get("included") and asset.get("approved") and asset.get("host")
+            ]
+            if not approved:
+                raise RuntimeError("This project has no explicitly approved in-scope assets.")
+            for asset in approved:
+                host = asset["host"]
+                job = client.start_hunt(
+                    self.project_id, f"https://{host}/", max_pages=100
+                )
+                queued.append((job.get("id"), host))
+            self.succeeded.emit({"already_active": 0, "queued": queued})
+        except Exception as exc:
+            detail = f"{type(exc).__name__}: {exc}"
+            if queued:
+                detail = f"Partially queued {len(queued)} job(s): {queued}. {detail}"
+            self.failed.emit(detail)
+        finally:
+            client.close()
+
+
 class CloudWorkspace(QWidget):
     """Single cloud workspace for projects, scope, hunts and evidence."""
 
