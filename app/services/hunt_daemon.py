@@ -2,7 +2,7 @@
 import json
 import logging
 import signal
-from threading import Event
+from threading import Event, Thread
 import fcntl
 
 import httpx
@@ -14,6 +14,7 @@ from app.database.db import SessionLocal, engine, init_db
 from app.models.entities import AssessmentJob, Project, ScanCheck
 from app.services.jobs import (
     retry_hunt_job,
+    touch_job_heartbeat,
     transition_job,
     update_job_progress,
 )
@@ -240,14 +241,38 @@ def persist_progress(db, job_id, percent, message):
         log.exception("Progress persistence failed for job %s", job_id)
 
 
+def _job_heartbeat_loop(job_id, owner_id, stop_event):
+    """Refresh updated_at independently while a bounded request is in flight."""
+    while not stop_event.wait(20):
+        heartbeat_db = SessionLocal()
+        heartbeat_db.info["owner_id"] = owner_id
+        try:
+            if not touch_job_heartbeat(heartbeat_db, job_id):
+                return
+        except Exception:
+            heartbeat_db.rollback()
+            log.exception("Heartbeat update failed for hunt %s", job_id)
+        finally:
+            heartbeat_db.close()
+
+
 def run_job(job_id, project_id, owner_id):
     db = SessionLocal()
     db.info["owner_id"] = owner_id
+    heartbeat_stop = Event()
+    heartbeat_thread = None
 
     try:
         job = db.get(AssessmentJob, job_id)
         if not job or job.project_id != project_id or job.status != "running":
             return
+        heartbeat_thread = Thread(
+            target=_job_heartbeat_loop,
+            args=(job_id, owner_id, heartbeat_stop),
+            name=f"bughunter-heartbeat-{job_id}",
+            daemon=True,
+        )
+        heartbeat_thread.start()
         job_stop = JobStopSignal(db, job_id)
 
         project = db.get(Project, project_id)
@@ -480,6 +505,9 @@ def run_job(job_id, project_id, owner_id):
             db.rollback()
             log.exception("Could not persist failure state for job %s", job_id)
     finally:
+        heartbeat_stop.set()
+        if heartbeat_thread is not None:
+            heartbeat_thread.join(timeout=2)
         db.close()
 
 
