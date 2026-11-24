@@ -160,6 +160,33 @@ class HuntQueueThread(QThread):
             client.close()
 
 
+class LoginThread(QThread):
+    succeeded = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, base_url, username, password, parent=None):
+        super().__init__(parent)
+        self.base_url = base_url
+        self.username = username
+        self.password = password
+
+    def run(self):
+        client = APIClient(self.base_url, timeout=15.0)
+        try:
+            client.login(self.username, self.password)
+            account = client.me()
+            if not isinstance(account, dict) or not account.get("id"):
+                raise RuntimeError("The API returned an invalid account profile.")
+            self.succeeded.emit({
+                "token": client._token,
+                "account": account,
+            })
+        except Exception as exc:
+            self.failed.emit(f"{type(exc).__name__}: {exc}")
+        finally:
+            client.close()
+
+
 class CloudWorkspace(QWidget):
     """Single cloud workspace for projects, scope, hunts and evidence."""
 
