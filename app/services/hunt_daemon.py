@@ -279,7 +279,7 @@ def run_job(job_id, project_id, owner_id):
                 use_certificate_transparency=bool(
                     config.get("certificate_transparency", True)
                 ),
-                delay_seconds=1.0,
+                delay_seconds=policy_controls["minimum_request_delay_seconds"],
                 stop_event=job_stop,
                 progress_callback=lambda pct, msg: persist_progress(
                     db, job_id, int(int(pct) * 0.20),

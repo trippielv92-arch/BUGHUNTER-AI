@@ -689,6 +689,17 @@ def _markdown(data):
     ]:
         lines.append(f"- **{label}:** {data['counts'][key]}" if "counts" in data else "")
 
+    lines += [
+        "",
+        "## Researcher statement",
+        "",
+        data.get(
+            "researcher_statement",
+            "I reviewed the recorded assessment results and distinguish confirmed findings from potential leads and incomplete checks.",
+        ),
+        "",
+    ]
+
     lines += ["", "## OpenAPI documented-operation assessments", ""]
     if not data.get("openapi_assessments"):
         lines.append("No OpenAPI operation assessment observations recorded.")
@@ -827,6 +838,12 @@ def _markdown(data):
     for f in data["findings"]:
         lines += [
             f"### #{f['id']} — {f['title']}",
+            "",
+            (
+                "I confirmed this finding only after review."
+                if f["status"].lower() == "confirmed"
+                else f"I recorded this as a {f['status']} finding; the evidence and validation notes below show what I observed and what still requires review."
+            ),
             "",
             f"- **Severity:** {f['severity']}",
             f"- **Confidence:** {f['confidence']}",
@@ -1510,6 +1527,7 @@ table{{width:100%;border-collapse:collapse}}td,th{{padding:9px;border-bottom:1px
 <p>{esc(p['name'])} · Generated {esc(data['generated_at'])}</p></header>
 <main>
 {section("Project overview", f"<p><b>Programme:</b> {esc(p['programme_url'])}</p><p><b>Status:</b> {esc(p['status'])}</p><p><b>Scope approval recorded:</b> {p['scope_approved']}</p><p>{esc(p['description'])}</p>")}
+{section("Researcher statement", f"<p>{esc(data.get('researcher_statement', 'I reviewed the recorded assessment results and separated confirmed findings from potential leads.'))}</p>")}
 {section("Assessment methodology and authorization", "".join(f"<h3>{esc(item['title'])}</h3><p>{esc(item['description'])}</p>" for item in data["methodology"]))}
 {section("Executive summary", f"<div class='metrics'>{summary}</div>")}
 {section("OpenAPI documented-operation assessments", "<p>Documentation-based observations only. Documented operations were not invoked; these indicators do not prove vulnerabilities.</p><table><tr><th>Check</th><th>Method</th><th>Path</th><th>Operation ID</th><th>Security status</th><th>Identity parameters</th><th>Sensitive parameter names</th><th>Indicators</th><th>Asset</th><th>Recorded</th></tr>" + openapi_rows + "</table>")}
@@ -1564,6 +1582,10 @@ def _pdf_report(data, path):
         para(f"Generated: {data['generated_at']}"),
         para(f"Programme: {data['project']['programme_url']}"),
         para(f"Scope approval recorded: {data['project']['scope_approved']}"),
+        para(data.get(
+            "researcher_statement",
+            "I reviewed the recorded assessment results and distinguish confirmed findings from potential leads and incomplete checks.",
+        )),
         Spacer(1, 8 * mm),
         para("Assessment Methodology and Authorization", "Heading1"),
     ]
@@ -2241,6 +2263,33 @@ def export_report(db, pid, destination, fmt):
         "validation_insufficient": data["counts"]["validation_insufficient"],
         "validation_not_run": data["counts"]["validation_not_run"],
     })
+
+    hunt_jobs = [
+        job for job in data.get("jobs", [])
+        if job.get("type") == "Automated hunt"
+    ]
+    if hunt_jobs and all(job.get("status") == "completed" for job in hunt_jobs):
+        completion_sentence = "I completed the queued automated hunt jobs."
+    elif hunt_jobs:
+        completion_sentence = (
+            "I reviewed the results available when the automated hunt jobs ended; "
+            "some jobs did not complete successfully, so the coverage below is partial."
+        )
+    else:
+        completion_sentence = "I reviewed the assessment records currently stored for this project."
+
+    data["researcher_statement"] = (
+        "I conducted this authorized-scope assessment using the programme policy "
+        "snapshot and exact assets approved for this project. "
+        + completion_sentence
+        + f" I recorded {len(data['findings'])} finding(s), including "
+        + f"{sum(f['status'].lower() == 'confirmed' for f in data['findings'])} "
+        + "marked confirmed and "
+        + f"{sum(f['status'].lower() in {'potential', 'needs_review'} for f in data['findings'])} "
+        + "still requiring review. I have not treated a heuristic, endpoint inventory "
+        "or response difference by itself as proof of exploitability. I have identified "
+        "the assessment limitations and incomplete checks in this report."
+    )
 
     path = Path(destination).expanduser()
     path.parent.mkdir(parents=True, exist_ok=True)

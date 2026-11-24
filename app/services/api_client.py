@@ -295,6 +295,35 @@ class APIClient:
             f"/api/v1/projects/{int(project_id)}/program-assets/propose-clear-hostnames",
         )
 
+    def download_report(self, project_id, report_format="pdf"):
+        """Download a finished cloud project report as raw bytes."""
+        if not self._token:
+            raise APIError(401, "Sign in again before downloading a report.")
+        if report_format not in {"pdf", "docx", "html", "markdown", "json"}:
+            raise ValueError("Unsupported report format.")
+        try:
+            response = self._http.get(
+                f"/api/v1/projects/{int(project_id)}/report",
+                params={"format": report_format},
+                headers={"Authorization": f"Bearer {self._token}"},
+            )
+        except httpx.TimeoutException as exc:
+            raise APIError(0, "The report download timed out.") from exc
+        except httpx.RequestError as exc:
+            raise APIError(
+                0, f"Cannot connect to BugHunter AI API at {self.base_url}."
+            ) from exc
+        if response.status_code >= 400:
+            try:
+                body = response.json()
+                detail = body.get("detail", body)
+            except ValueError:
+                detail = response.text[:500] or "Report download failed."
+            raise APIError(response.status_code, detail)
+        if not response.content:
+            raise APIError(502, "The report service returned an empty file.")
+        return response.content
+
     def review_finding(self, project_id, finding_id, **changes):
         return self.request(
             "PATCH",
