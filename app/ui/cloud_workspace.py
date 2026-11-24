@@ -269,10 +269,15 @@ class CloudWorkspace(QWidget):
         note.setStyleSheet("color:#91a9c7;padding:4px")
         layout.addWidget(note)
         self.remote_assessment_table = self._make_table(
-            ["Category", "Checks planned", "Planned", "In progress",
-             "Completed", "Needs review", "Skipped"]
+            ["Vulnerability category", "Checks recorded", "Completed",
+             "Skipped", "Failed", "Latest outcome"]
         )
         layout.addWidget(self.remote_assessment_table, 1)
+        layout.addWidget(QLabel("Guided manual validation plan"))
+        self.remote_test_plan_table = self._make_table(
+            ["Category", "Assessment", "Status", "Target", "Notes"]
+        )
+        layout.addWidget(self.remote_test_plan_table, 1)
         layout.addWidget(QLabel("Recorded assessment observations"))
         self.remote_checks_table = self._make_table(
             ["Asset", "Assessment check", "Outcome", "Observed at"]
@@ -442,28 +447,59 @@ class CloudWorkspace(QWidget):
                 for e in endpoints
             ])
 
-            aliases = {
-                "planned": "planned", "queued": "planned",
-                "running": "in progress", "in progress": "in progress",
-                "completed": "completed", "passed": "completed",
-                "needs review": "needs review", "failed": "needs review",
-                "blocked": "skipped", "skipped": "skipped",
-                "not applicable": "skipped",
-            }
-            grouped = {}
-            for test in tests:
-                category = str(test.get("category") or "Uncategorized")
-                status = aliases.get(str(test.get("status") or "planned").lower(), "planned")
-                bucket = grouped.setdefault(category, {
-                    "planned": 0, "in progress": 0, "completed": 0,
-                    "needs review": 0, "skipped": 0,
+            def check_category(name):
+                value = str(name or "").lower()
+                if "cors" in value:
+                    return "Cross-origin policy (CORS)"
+                if any(term in value for term in ("authorization", "object reference", "cross-account", "role-based")):
+                    return "Access control (IDOR / BOLA)"
+                if any(term in value for term in ("openapi", "api access", "api operation", "api response", "api disclosure")):
+                    return "API security and data exposure"
+                if any(term in value for term in ("javascript", "client-side", "source-map")):
+                    return "Client-side security"
+                if "reflection" in value:
+                    return "Reflected input (XSS review)"
+                if "redirect" in value:
+                    return "Redirect handling"
+                if any(term in value for term in ("cookie", "session")):
+                    return "Session management"
+                if any(term in value for term in ("tls", "transport", "header", "csp", "hsts", "html")):
+                    return "Transport and security configuration"
+                if any(term in value for term in ("sensitive", "disclosure", "exposure", "secret")):
+                    return "Sensitive information exposure"
+                if "sql" in value or "database" in value:
+                    return "Database error disclosure"
+                if "robots" in value or "endpoint" in value:
+                    return "Attack-surface discovery"
+                return "Web application assessment"
+
+            check_groups = {}
+            for check in checks:
+                category = check_category(check.get("check_name"))
+                bucket = check_groups.setdefault(category, {
+                    "completed": 0, "skipped": 0, "failed": 0,
+                    "total": 0, "latest": "—",
                 })
-                bucket[status] += 1
+                outcome = str(check.get("outcome") or "unknown").lower()
+                bucket["total"] += 1
+                if outcome in {"completed", "passed", "success"}:
+                    bucket["completed"] += 1
+                elif outcome in {"skipped", "blocked", "not_applicable"}:
+                    bucket["skipped"] += 1
+                elif outcome in {"failed", "error"}:
+                    bucket["failed"] += 1
+                if bucket["latest"] == "—":
+                    bucket["latest"] = outcome.upper()
             self._fill_table(self.remote_assessment_table, [
-                (category, sum(bucket.values()), bucket["planned"],
-                 bucket["in progress"], bucket["completed"],
-                 bucket["needs review"], bucket["skipped"])
-                for category, bucket in sorted(grouped.items())
+                (category, bucket["total"], bucket["completed"],
+                 bucket["skipped"], bucket["failed"], bucket["latest"])
+                for category, bucket in sorted(check_groups.items())
+            ])
+            self._fill_table(self.remote_test_plan_table, [
+                (test.get("category"), test.get("title"),
+                 str(test.get("status", "")).upper(),
+                 test.get("target"), test.get("notes"))
+                for test in tests
             ])
             self._fill_table(self.remote_checks_table, [
                 (c.get("asset"), c.get("check_name"),
@@ -536,8 +572,8 @@ class CloudWorkspace(QWidget):
     def clear_workspace(self):
         for name in (
             "remote_assets_table", "remote_endpoints_table",
-            "remote_assessment_table", "remote_checks_table",
-            "remote_findings_table", "remote_jobs_table",
+            "remote_assessment_table", "remote_test_plan_table",
+            "remote_checks_table", "remote_findings_table", "remote_jobs_table",
             "remote_evidence_table", "remote_activity_table",
         ):
             table = getattr(self, name, None)
