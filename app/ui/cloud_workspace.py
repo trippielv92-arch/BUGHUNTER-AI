@@ -16,7 +16,7 @@ class CloudWorkspace(QWidget):
 
     def __init__(self, window):
         super().__init__(window)
-        self.window = window
+        self.host_window = window
         self.client = window.api_client
         self._refreshing = False
         self._build()
@@ -66,7 +66,7 @@ class CloudWorkspace(QWidget):
         connected = QLabel("●  CLOUD CONNECTED")
         connected.setStyleSheet("color:#62d6a4;font-weight:800;padding:8px 12px;background:#102b2a;border-radius:7px")
         header.addWidget(connected)
-        account = QLabel(f"ACCOUNT  {self.window.remote_account.get('username', 'Account')}")
+        account = QLabel(f"ACCOUNT  {self.host_window.remote_account.get('username', 'Account')}")
         account.setStyleSheet("color:#b6c8df;padding:8px")
         header.addWidget(account)
         refresh = QPushButton("↻  Refresh")
@@ -75,7 +75,7 @@ class CloudWorkspace(QWidget):
         header.addWidget(refresh)
         logout = QPushButton("Log out")
         logout.setStyleSheet("background:#3a485c")
-        logout.clicked.connect(self.window.remote_logout)
+        logout.clicked.connect(self.host_window.remote_logout)
         header.addWidget(logout)
         outer.addLayout(header)
 
@@ -91,7 +91,7 @@ class CloudWorkspace(QWidget):
         create_grid.addWidget(self.remote_project_url, 1, 1)
         create = QPushButton("＋  CREATE PROJECT")
         create.setMinimumHeight(40)
-        create.clicked.connect(self.window.new_remote_project)
+        create.clicked.connect(self.host_window.new_remote_project)
         create_grid.addWidget(create, 1, 2)
         create_grid.setColumnStretch(0, 1)
         create_grid.setColumnStretch(1, 2)
@@ -106,12 +106,12 @@ class CloudWorkspace(QWidget):
         side.addWidget(QLabel("ACTIVE WORKSPACES"))
         self.remote_project_list = QListWidget()
         self.remote_project_list.setMinimumHeight(260)
-        self.remote_project_list.itemClicked.connect(self.window.select_remote_project)
+        self.remote_project_list.itemClicked.connect(self.host_window.select_remote_project)
         side.addWidget(self.remote_project_list, 3)
         side.addWidget(QLabel("ARCHIVED"))
         self.remote_archived_list = QListWidget()
         self.remote_archived_list.setMaximumHeight(130)
-        self.remote_archived_list.itemClicked.connect(self.window.select_remote_archived_project)
+        self.remote_archived_list.itemClicked.connect(self.host_window.select_remote_archived_project)
         side.addWidget(self.remote_archived_list, 1)
         hint = QLabel("Every project has its own reviewed scope, attack surface, assessments and evidence.")
         hint.setWordWrap(True)
@@ -128,13 +128,13 @@ class CloudWorkspace(QWidget):
         self.remote_selected_project_title.setStyleSheet("font-size:21px;font-weight:800;color:#f1f6ff")
         project_header.addWidget(self.remote_selected_project_title)
         project_header.addStretch(1)
-        self.remote_archive_button = QPushButton("Archive")
+        self.remote_archive_button = QPushButton("Delete project")
         self.remote_archive_button.setStyleSheet("background:#46566d")
-        self.remote_archive_button.clicked.connect(self.window.archive_remote_project)
+        self.remote_archive_button.clicked.connect(self.host_window.archive_remote_project)
         project_header.addWidget(self.remote_archive_button)
         self.remote_restore_button = QPushButton("Restore")
         self.remote_restore_button.setStyleSheet("background:#46566d")
-        self.remote_restore_button.clicked.connect(self.window.restore_remote_project)
+        self.remote_restore_button.clicked.connect(self.host_window.restore_remote_project)
         project_header.addWidget(self.remote_restore_button)
         work_layout.addLayout(project_header)
 
@@ -151,13 +151,13 @@ class CloudWorkspace(QWidget):
         policy = QPushButton("POLICY & SCOPE")
         policy.setStyleSheet("background:#31577e")
         policy.setMinimumHeight(42)
-        policy.clicked.connect(self.window.open_remote_project_tools)
+        policy.clicked.connect(self.host_window.open_remote_project_tools)
         actions.addWidget(policy)
         self.remote_start_hunt_button = QPushButton("▶  START HUNT")
         self.remote_start_hunt_button.setStyleSheet("background:#087f5b;font-size:14px")
         self.remote_start_hunt_button.setMinimumHeight(42)
         self.remote_start_hunt_button.setEnabled(False)
-        self.remote_start_hunt_button.clicked.connect(self.window.start_remote_hunt)
+        self.remote_start_hunt_button.clicked.connect(self.host_window.start_remote_hunt)
         actions.addWidget(self.remote_start_hunt_button)
         work_layout.addLayout(actions)
 
@@ -320,7 +320,7 @@ class CloudWorkspace(QWidget):
             projects = self.client.list_projects()
             if not isinstance(projects, list):
                 raise RuntimeError("The API returned an invalid project list.")
-            selected_id = self.window.remote_project_id
+            selected_id = self.host_window.remote_project_id
             self.remote_project_list.clear()
             self.remote_archived_list.clear()
             selected_item = None
@@ -339,24 +339,24 @@ class CloudWorkspace(QWidget):
                         selected_item = item
             if selected_item is not None:
                 self.remote_project_list.setCurrentItem(selected_item)
-                self.window.select_remote_project(selected_item)
+                self.host_window.select_remote_project(selected_item)
             elif selected_id is None:
                 self.clear_workspace()
                 self.remote_project_list.clearSelection()
-                self.window.statusBar().showMessage(
+                self.host_window.statusBar().showMessage(
                     f"Loaded {len(projects)} project(s). Select one to view its workspace."
                 )
             else:
-                self.window.remote_project_id = None
-                self.window.remote_project = None
+                self.host_window.remote_project_id = None
+                self.host_window.remote_project = None
                 self.clear_workspace()
         except Exception as exc:
-            self.window.statusBar().showMessage(f"Could not refresh projects: {exc}")
+            self.host_window.statusBar().showMessage(f"Could not refresh projects: {exc}")
 
     def refresh_workspace(self):
         if self._refreshing or not self.client or not self.client.authenticated:
             return
-        project_id = self.window.remote_project_id
+        project_id = self.host_window.remote_project_id
         if not project_id:
             return
         self._refreshing = True
@@ -402,7 +402,7 @@ class CloudWorkspace(QWidget):
             for key, value in metrics.items():
                 self.remote_metric_values[key].setText(str(value))
 
-            self.window.remote_project = project
+            self.host_window.remote_project = project
             self.remote_selected_project_title.setText(
                 project.get("name", "Selected project")
             )
@@ -558,12 +558,12 @@ class CloudWorkspace(QWidget):
                 f"⏳  HUNT ACTIVE ({len(active_jobs)})" if active_jobs
                 else "▶  START HUNT"
             )
-            self.window.statusBar().showMessage(
+            self.host_window.statusBar().showMessage(
                 f"Workspace synced · {len(approved)} approved assets · "
                 f"{len(endpoints)} endpoints · {len(findings)} findings"
             )
         except Exception as exc:
-            self.window.statusBar().showMessage(
+            self.host_window.statusBar().showMessage(
                 f"Workspace refresh failed: {type(exc).__name__}: {exc}"
             )
         finally:
