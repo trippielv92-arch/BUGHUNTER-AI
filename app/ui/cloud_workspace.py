@@ -428,7 +428,7 @@ class CloudWorkspace(QWidget):
             evidence = resources["evidence"]
             activities = resources["activities"]
             active_jobs = [
-                job for job in jobs if job.get("status") in {"queued", "running"}
+                job for job in jobs if job.get("status") in {"queued", "running", "paused"}
             ]
 
             metrics = {
@@ -615,7 +615,7 @@ class CloudWorkspace(QWidget):
                 f"⏳  HUNT ACTIVE ({len(active_jobs)})" if active_jobs
                 else "▶  START HUNT"
             )
-            self.remote_workspace_tabs.setVisible(ready or bool(active_jobs) or bool(findings))
+            self.remote_workspace_tabs.setVisible(bool(active_jobs) or bool(hunt_jobs) or bool(findings))
             hunt_jobs = [j for j in jobs if j.get("job_type") == "Automated hunt"]
             terminal_statuses = {"completed", "failed", "stopped"}
             hunt_finished = bool(hunt_jobs) and all(
