@@ -54,6 +54,6 @@ These changes are hardening work, not a claim that the final release gates have 
 
 ## Production database inspection — 2026-11-24
 
-The linked Supabase project is reachable and reports `ACTIVE_HEALTHY`. Inspection found 15 public application tables and RLS enabled on all 15. Direct table privileges for the Supabase `anon` and `authenticated` roles were absent for the checked project and finding tables, consistent with the private API-only database architecture. Supabase's RLS-without-policy advisory is therefore expected only while those public roles remain unprivileged; do not add broad public policies to silence it.
+The linked Supabase project is reachable and reports `ACTIVE_HEALTHY`. Inspection found 15 public application tables and RLS enabled on all 15. Across all 15 public tables, the Supabase `anon` and `authenticated` roles had zero SELECT or INSERT privileges, consistent with the private API-only database architecture. Supabase's RLS-without-policy advisory is therefore expected only while those public roles remain unprivileged; do not add broad public policies to silence it.
 
 The database currently reports no recorded migration history. The application has startup schema creation/compatibility logic, but production deployment still needs a successful API/worker startup test against this exact schema and confirmation that the configured API and worker connections use the intended private database role. No production DDL was changed during this inspection.
