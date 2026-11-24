@@ -129,6 +129,7 @@ class Window(QMainWindow):
   button.setMinimumHeight(48)
   button.clicked.connect(self.login)
   layout.addWidget(button)
+  self.login_button = button
   self.password.returnPressed.connect(self.login)
   footer=QLabel("Your account is authenticated by the central BugHunter AI API.")
   footer.setAlignment(Qt.AlignCenter)
