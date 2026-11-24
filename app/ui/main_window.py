@@ -12,7 +12,7 @@ from app.database.db import SessionLocal,init_db
 from app.models.entities import User,Project,Finding,ScanCheck,ScopeAsset,Activity,Endpoint,TestCase,Evidence,AssessmentJob,FindingReview
 from app.services.auth import authenticate
 from app.services.api_client import APIClient, APIError
-from app.ui.cloud_workspace import CloudWorkspace, RemoteAPICallThread, HuntQueueThread
+from app.ui.cloud_workspace import CloudWorkspace, RemoteAPICallThread, HuntQueueThread, LoginThread
 from app.core.config import API_BASE_URL, ENABLE_LOCAL_MODE
 from app.services.workflows import add_endpoint,initialize_test_plan,update_test_case,recommend_endpoint_tests
 from app.services.evidence import add_evidence,list_evidence,verify_evidence, audit_project_evidence
@@ -177,26 +177,27 @@ class Window(QMainWindow):
   if not username or not password:
    QMessageBox.warning(self, "Remote login", "Enter your username and password.")
    return
+  self.login_button.setEnabled(False)
+  self.login_button.setText("CONNECTING…")
+  self._login_thread = LoginThread(API_BASE_URL, username, password, self)
+  self._login_thread.succeeded.connect(self._remote_login_succeeded)
+  self._login_thread.failed.connect(self._remote_login_failed)
+  self._login_thread.start()
 
+ def _remote_login_succeeded(self, result):
   client = APIClient()
-  try:
-   client.login(username, password)
-   account = client.me()
-   if not isinstance(account, dict) or not account.get("id"):
-    raise APIError(502, "The API returned an invalid account profile.")
+  client._token = result["token"]
+  self.api_client = client
+  self.remote_account = result["account"]
+  self.remote_project_id = None
+  self.remote_project = None
+  self.password.clear()
+  self.remote_dashboard()
 
-   self.api_client = client
-   self.remote_account = account
-   self.remote_project_id = None
-   self.remote_project = None
-   self.password.clear()
-   self.remote_dashboard()
-  except APIError as exc:
-   client.close()
-   QMessageBox.warning(self, "Remote login", str(exc))
-  except Exception as exc:
-   client.close()
-   QMessageBox.warning(self, "Remote login", f"Could not open remote workspace: {exc}")
+ def _remote_login_failed(self, message):
+  self.login_button.setEnabled(True)
+  self.login_button.setText("SIGN IN  →")
+  QMessageBox.warning(self, "Remote login", message)
 
  def remote_dashboard(self):
   if not self.api_client or not self.api_client.authenticated:
