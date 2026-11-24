@@ -28,7 +28,7 @@ STYLE = "QWidget{background:#0b1220;color:#e5edf8;font-family:Arial;font-size:13
 class Window(QMainWindow):
  def __init__(self):
   super().__init__()
-  self.db=SessionLocal()
+  self.db = SessionLocal() if ENABLE_LOCAL_MODE else None
   self.user_id=None
   self.project_id=None
   self.analysis_worker=None
@@ -4856,6 +4856,14 @@ class Window(QMainWindow):
    self.db.rollback()
    QMessageBox.warning(self,"Report export",str(e))
 def run():
- init_db(); app=QApplication(sys.argv); w=Window(); w.show(); code=app.exec();
- if w.api_client is not None: w.api_client.close()
- w.db.close(); return code
+ if ENABLE_LOCAL_MODE:
+  init_db()
+ app=QApplication(sys.argv)
+ w=Window()
+ w.show()
+ code=app.exec()
+ if w.api_client is not None:
+  w.api_client.close()
+ if w.db is not None:
+  w.db.close()
+ return code
