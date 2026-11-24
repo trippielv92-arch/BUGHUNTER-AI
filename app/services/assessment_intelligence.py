@@ -37,7 +37,7 @@ SENSITIVE_NAMES = {
 URL_NAMES = {
     "url", "uri", "link", "callback", "webhook", "redirect",
     "redirect_uri", "return_url", "next", "image_url",
-    "fetch_url", "destination",
+    "fetch_url", "source_url", "target_url", "feed_url", "destination",
 }
 
 FILE_WORDS = {
