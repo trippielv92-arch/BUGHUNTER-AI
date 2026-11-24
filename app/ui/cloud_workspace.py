@@ -625,7 +625,9 @@ class CloudWorkspace(QWidget):
             )
             self.remote_report_format.setVisible(hunt_finished)
             self.remote_download_report_button.setVisible(hunt_finished)
-            self.remote_new_project_button.setVisible(hunt_finished or archived)
+            self.remote_new_project_button.setVisible(
+                hunt_finished or archived or not project.get("programme_url")
+            )
             if hunt_finished:
                 latest_hunt_id = max(int(j.get("id", 0)) for j in hunt_jobs)
                 notification_key = f"reports/notified/project_{project_id}"
