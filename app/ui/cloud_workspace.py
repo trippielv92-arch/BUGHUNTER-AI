@@ -7,7 +7,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QLineEdit,
     QPushButton, QListWidget, QGroupBox, QFrame, QTextEdit, QTabWidget,
-    QTableWidget, QTableWidgetItem, QHeaderView, QProgressBar,
+    QTableWidget, QTableWidgetItem, QHeaderView, QProgressBar, QListWidgetItem,
 )
 
 
@@ -323,9 +323,7 @@ class CloudWorkspace(QWidget):
                 project_id = project.get("id")
                 name = project.get("name", "Unnamed project")
                 status = str(project.get("status", "unknown")).lower()
-                item = __import__("PySide6.QtWidgets", fromlist=["QListWidgetItem"]).QListWidgetItem(
-                    f"{name}   ·   #{project_id}"
-                )
+                item = QListWidgetItem(f"{name}   ·   #{project_id}")
                 item.setData(Qt.UserRole, project_id)
                 if status == "deleted":
                     item.setText(f"{name}   ·   ARCHIVED")
@@ -338,6 +336,8 @@ class CloudWorkspace(QWidget):
                 self.remote_project_list.setCurrentItem(selected_item)
                 self.window.select_remote_project(selected_item)
             elif selected_id is None:
+                self.clear_workspace()
+                self.remote_project_list.clearSelection()
                 self.window.statusBar().showMessage(
                     f"Loaded {len(projects)} project(s). Select one to view its workspace."
                 )
@@ -368,10 +368,8 @@ class CloudWorkspace(QWidget):
                 resources[name] = value
 
             policies = self.client.list_program_policies(project_id)
-            candidates = sum(
-                len(policy.get("assets", []))
-                for policy in policies if isinstance(policy, dict)
-            )
+            latest_policy = policies[0] if policies and isinstance(policies[0], dict) else {}
+            candidates = len(latest_policy.get("assets", []))
             assets = resources["assets"]
             approved = [
                 item for item in assets
