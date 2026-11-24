@@ -89,7 +89,7 @@ Cloud readiness must be verified from live API health, authenticated account log
 - Vulnerability-specific verification is still a development milestone.
 - Exact mid-hunt pause/resume and checkpoint continuation are not complete.
 - Cloud worker health monitoring, retry/lease recovery and production backups need further hardening.
-- Supabase RLS is disabled on application tables. Direct table privileges for `anon`, `authenticated` and `PUBLIC` have been revoked, and the backend uses a role with `BYPASSRLS`; this is defense-in-depth work that still needs a reviewed policy/migration before production multi-tenant use.
+- Row Level Security is enabled on all 15 application tables. `PUBLIC`, `anon` and `authenticated` have no table privileges. The API and worker connect with the `postgres` role (`BYPASSRLS`) and enforce account/project ownership in the backend. Keep those server credentials private; second-account isolation tests and ongoing tenant-boundary review remain release requirements.
 - Free-tier hosting limits and database inactivity policies are not suitable for an availability guarantee.
 
 See [the product architecture and completion gates](docs/PRODUCT_ARCHITECTURE.md) and [the roadmap](docs/ROADMAP.md).

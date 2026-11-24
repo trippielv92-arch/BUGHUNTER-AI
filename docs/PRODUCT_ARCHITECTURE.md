@@ -31,6 +31,7 @@ The Parrot desktop client is the only normal user-facing application. It talks t
 - The production desktop never connects directly to Supabase.
 - The API and worker share the same PostgreSQL database; do not add a second cloud database or a second job queue.
 - Evidence and state must not depend on the desktop filesystem or a Vercel function's ephemeral filesystem.
+- RLS is enabled on all 15 public application tables; PUBLIC, anon and authenticated have no table privileges. The API and worker use the private postgres BYPASSRLS role and must enforce account/project ownership on every operation.
 - The current worker performs bounded discovery and observation correlation. Vulnerability-specific verification remains a separate, explicit release milestone.
 
 ## Release acceptance

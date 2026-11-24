@@ -23,7 +23,7 @@ BugHunter AI is one cloud-connected Parrot desktop client backed by an authentic
 3. **Worker reliability:** health heartbeat, lease/heartbeat recovery, bounded retries, cancellation and safe restart semantics.
 4. **Vulnerability verification:** implement explicit, scope-gated, non-destructive checks with controlled test accounts or synthetic data; preserve request/response evidence and confidence rationale.
 5. **Finding quality:** deterministic deduplication, reproducible verification steps, evidence integrity, review/confirmation lifecycle.
-6. **Security hardening:** tenant-isolation review, database RLS/policies, secrets rotation, encrypted backups, audit integrity and monitoring.
+6. **Security hardening:** [x] enable RLS on all 15 application tables and revoke public-role table grants; complete second-account tenant-isolation tests, secrets rotation, encrypted backups, audit integrity and monitoring.
 7. **Release:** build and install the Debian package on Parrot, smoke-test login/project/scope/hunt/results, publish a versioned artifact and update installation instructions.
 
 ## Non-negotiable safety requirements
