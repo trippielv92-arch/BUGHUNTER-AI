@@ -45,7 +45,7 @@ The `release/hardening-v0.4.0` branch adds the following regression-protected ch
 - [x] Include finding category in exact duplicate identity so different vulnerability classes on the same asset are not collapsed.
 - [x] Add two-account project/child-record isolation regression tests.
 - [x] Add finding identity/correlation, evidence-tamper, assessment-planner, tenant-isolation, heartbeat and retry-boundary regression tests.
-- [ ] Obtain a passing full CI run and inspect the generated Debian package.
+- [x] Obtain a passing full CI run (187 tests) and inspect the `0.4.0rc1` Debian package.
 - [ ] Verify production API, worker, database connectivity and account isolation against the deployed environment.
 - [ ] Complete worker heartbeat/lease observability and controlled retry recovery for process/database interruption.
 - [ ] Extend automated vulnerability verification only where a controlled test account or researcher-owned synthetic resource provides safe proof. Heuristic indicators remain potential findings, never automatic confirmations.
