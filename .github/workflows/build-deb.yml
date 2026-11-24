@@ -47,7 +47,7 @@ jobs:
       - name: Compile application
         run: python -m compileall -q app main.py
       - name: Run automated test suite
-        run: pytest -q
+        run: python -m pytest -q
       - name: Build .deb
         run: |
           chmod +x scripts/build_deb.sh
