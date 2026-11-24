@@ -426,6 +426,66 @@ class Window(QMainWindow):
    return
 
   try:
+   # Make the approval button a complete review-to-approval action:
+   # only candidates explicitly accepted by the researcher from the latest
+   # saved policy version may be converted into proposed scope entries.
+   # This step never approves assets; the confirmation below remains required.
+   policies = self.api_client.list_program_policies(project_id)
+   latest_policy = max(
+    policies,
+    key=lambda item: int(item.get("version_number") or 0),
+    default=None,
+   )
+   candidates = latest_policy.get("assets", []) if latest_policy else []
+   existing_assets = self.api_client.list_project_resource(project_id, "assets")
+   existing_by_host = {
+    str(asset.get("host", "")).strip().lower().rstrip("."): asset
+    for asset in existing_assets
+    if asset.get("host")
+   }
+
+   proposed_now = []
+   skipped_candidates = []
+   for candidate in candidates:
+    if candidate.get("review_status") != "accepted":
+     continue
+    if candidate.get("disposition") == "excluded":
+     skipped_candidates.append(
+      f"{candidate.get('asset', '')}: excluded by programme policy"
+     )
+     continue
+    if candidate.get("asset_type") not in {"hostname", "ip_address"}:
+     skipped_candidates.append(
+      f"{candidate.get('asset', '')}: not an exact host/IP asset"
+     )
+     continue
+
+    host = str(candidate.get("asset") or "").strip()
+    normalized_host = host.lower().rstrip(".")
+    if not normalized_host:
+     continue
+
+    existing = existing_by_host.get(normalized_host)
+    if existing:
+     if not existing.get("included"):
+      skipped_candidates.append(
+       f"{host}: already explicitly excluded from proposed scope"
+      )
+     continue
+
+    try:
+     added = self.api_client.add_program_asset_to_scope(
+      project_id, int(candidate["id"])
+     )
+     existing_by_host[normalized_host] = added or {
+      "host": host, "included": True, "approved": False,
+     }
+     proposed_now.append(host)
+    except APIError as exc:
+     skipped_candidates.append(f"{host}: {exc}")
+
+   # Always re-read authoritative scope after candidate promotion. The
+   # confirmation list is built from server records, not UI assumptions.
    assets = self.api_client.list_project_resource(project_id, "assets")
    included = [
     asset.get("host", "") for asset in assets
@@ -435,29 +495,50 @@ class Window(QMainWindow):
     asset.get("host", "") for asset in assets
     if not asset.get("included") and asset.get("host")
    ]
+
    if not included:
-    QMessageBox.warning(
-     self, "Approve scope",
-     "There are no included assets. Review policy candidates and add "
-     "explicitly authorized assets to proposed scope first."
+    message = (
+     "There are no included assets to approve. Accept the eligible policy "
+     "candidates first, or add an exact authorized host to proposed scope."
     )
+    if skipped_candidates:
+     message += "\n\nCandidates not added:\n" + "\n".join(skipped_candidates[:12])
+    QMessageBox.warning(self, "Approve scope", message)
     return
 
-   details = "Included assets to approve:\n" + "\n".join(included)
+   details = "Exact included assets to approve:\n" + "\n".join(included)
+   if proposed_now:
+    details += (
+     "\n\nAccepted policy candidates added to proposed scope:\n"
+     + "\n".join(proposed_now)
+    )
    if excluded:
     details += "\n\nExcluded assets (will remain unapproved):\n" + "\n".join(excluded)
+   if skipped_candidates:
+    details += (
+     "\n\nCandidates not added (not part of this approval):\n"
+     + "\n".join(skipped_candidates[:12])
+    )
    answer = QMessageBox.question(
     self,
     "Confirm exact remote scope",
-    details + "\n\nApprove only this exact included asset list?",
+    details + "\n\nApprove only this exact included asset list? "
+    "No excluded or skipped candidate will be approved.",
     QMessageBox.Yes | QMessageBox.No,
     QMessageBox.No,
    )
    if answer != QMessageBox.Yes:
+    self.remote_policy_status.setText(
+     "Proposed assets are saved but remain unapproved. Review the list and "
+     "click APPROVE EXACT SCOPE when ready."
+    )
     return
 
    self.api_client.approve_scope(project_id, policy_text)
    self.remote_project = self.api_client.get_project(project_id)
+   if not self.remote_project.get("scope_approved"):
+    raise APIError(409, "The server did not confirm scope approval.")
+
    self.remote_tools_dialog.accept()
    self.remote_stage_status.setText(
     "SCOPE APPROVED — the exact included assets are saved. You can now start the cloud hunt."
