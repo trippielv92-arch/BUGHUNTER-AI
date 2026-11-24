@@ -925,6 +925,7 @@ class CloudWorkspace(QWidget):
         self.remote_hunt_status.setText("Select a project to view hunt activity.")
         self.remote_hunt_progress.setValue(0)
         self.remote_selected_project_title.setText("Select a project to open its workspace")
+        self.remote_step_label.setText("STEP 1 OF 3   ·   CREATE PROJECT")
         self.remote_start_hunt_button.setEnabled(False)
         self.remote_start_hunt_button.hide()
         self.remote_analyze_button.setEnabled(False)
