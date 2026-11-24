@@ -1,10 +1,22 @@
 import json
 
+import pytest
+
+from app.services.projects import create_project, add_scope_asset, approve_scope
 from app.services.jobs import (
     create_hunt_job,
     retry_hunt_job,
     transition_job,
 )
+
+
+@pytest.fixture
+def approved_project(db):
+    project = create_project(db, "Retry test project", "https://example.com")
+    project.policy_text = "Authorized test policy for example.com."
+    add_scope_asset(db, project.id, "example.com")
+    approve_scope(db, project)
+    return project
 
 
 def test_transient_hunt_retries_are_bounded_and_secret_safe(db, approved_project):
