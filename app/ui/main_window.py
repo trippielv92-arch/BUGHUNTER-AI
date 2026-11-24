@@ -12,7 +12,7 @@ from app.database.db import SessionLocal,init_db
 from app.models.entities import User,Project,Finding,ScanCheck,ScopeAsset,Activity,Endpoint,TestCase,Evidence,AssessmentJob,FindingReview
 from app.services.auth import authenticate
 from app.services.api_client import APIClient, APIError
-from app.ui.cloud_workspace import CloudWorkspace
+from app.ui.cloud_workspace import CloudWorkspace, RemoteAPICallThread, HuntQueueThread, LoginThread
 from app.core.config import API_BASE_URL, ENABLE_LOCAL_MODE
 from app.services.workflows import add_endpoint,initialize_test_plan,update_test_case,recommend_endpoint_tests
 from app.services.evidence import add_evidence,list_evidence,verify_evidence, audit_project_evidence
@@ -129,6 +129,7 @@ class Window(QMainWindow):
   button.setMinimumHeight(48)
   button.clicked.connect(self.login)
   layout.addWidget(button)
+  self.login_button = button
   self.password.returnPressed.connect(self.login)
   footer=QLabel("Your account is authenticated by the central BugHunter AI API.")
   footer.setAlignment(Qt.AlignCenter)
@@ -177,26 +178,27 @@ class Window(QMainWindow):
   if not username or not password:
    QMessageBox.warning(self, "Remote login", "Enter your username and password.")
    return
+  self.login_button.setEnabled(False)
+  self.login_button.setText("CONNECTING…")
+  self._login_thread = LoginThread(API_BASE_URL, username, password, self)
+  self._login_thread.succeeded.connect(self._remote_login_succeeded)
+  self._login_thread.failed.connect(self._remote_login_failed)
+  self._login_thread.start()
 
+ def _remote_login_succeeded(self, result):
   client = APIClient()
-  try:
-   client.login(username, password)
-   account = client.me()
-   if not isinstance(account, dict) or not account.get("id"):
-    raise APIError(502, "The API returned an invalid account profile.")
+  client._token = result["token"]
+  self.api_client = client
+  self.remote_account = result["account"]
+  self.remote_project_id = None
+  self.remote_project = None
+  self.password.clear()
+  self.remote_dashboard()
 
-   self.api_client = client
-   self.remote_account = account
-   self.remote_project_id = None
-   self.remote_project = None
-   self.password.clear()
-   self.remote_dashboard()
-  except APIError as exc:
-   client.close()
-   QMessageBox.warning(self, "Remote login", str(exc))
-  except Exception as exc:
-   client.close()
-   QMessageBox.warning(self, "Remote login", f"Could not open remote workspace: {exc}")
+ def _remote_login_failed(self, message):
+  self.login_button.setEnabled(True)
+  self.login_button.setText("SIGN IN  →")
+  QMessageBox.warning(self, "Remote login", message)
 
  def remote_dashboard(self):
   if not self.api_client or not self.api_client.authenticated:
@@ -484,204 +486,149 @@ class Window(QMainWindow):
  def start_remote_hunt(self):
   project = self.remote_project
   project_id = self.remote_project_id
-
   if not self.api_client or not project or not project_id:
    QMessageBox.warning(self, "Cloud hunt", "Select a remote project first.")
    return
-
   if not project.get("scope_approved"):
-   QMessageBox.warning(
-    self, "Cloud hunt",
-    "Approve the exact programme scope before starting a hunt."
-   )
+   QMessageBox.warning(self, "Cloud hunt", "Approve the exact programme scope before starting a hunt.")
    return
+  self.remote_start_hunt_button.setEnabled(False)
+  self.remote_start_hunt_button.setText("QUEUEING HUNT…")
+  self.remote_stage_status.setText("Queueing approved assets on the cloud worker…")
+  self._hunt_queue_thread = HuntQueueThread(
+   self.api_client.base_url, self.api_client._token, project_id, self
+  )
+  self._hunt_queue_thread.succeeded.connect(self._remote_hunt_queue_succeeded)
+  self._hunt_queue_thread.failed.connect(self._remote_hunt_queue_failed)
+  self._hunt_queue_thread.start()
 
-  queued = []
-  try:
-   existing_jobs = self.api_client.list_project_resource(project_id, "jobs")
-   active_jobs = [
-    job for job in existing_jobs
-    if job.get("job_type") == "Automated hunt"
-    and job.get("status") in {"queued", "running"}
-   ]
-   if active_jobs:
-    QMessageBox.information(
-     self, "Hunt already active",
-     f"This project already has {len(active_jobs)} queued or running hunt(s). "
-     "Their progress is visible in the Hunt jobs tab."
-    )
-    self.refresh_remote_workspace()
-    return
-
-   assets = self.api_client.list_project_resource(project_id, "assets")
-   approved = [
-    asset for asset in assets
-    if asset.get("included") and asset.get("approved") and asset.get("host")
-   ]
-   if not approved:
-    QMessageBox.warning(
-     self, "Cloud hunt",
-     "This project has no explicitly approved in-scope assets."
-    )
-    return
-
-   for asset in approved:
-    host = asset["host"]
-    job = self.api_client.start_hunt(
-     project_id,
-     f"https://{host}/",
-     max_pages=100,
-    )
-    queued.append((job.get("id"), host))
-
-   summary = "\n".join(
-    f"Job #{job_id}: {host}" for job_id, host in queued
-   )
-   self.statusBar().showMessage(
-    f"Queued {len(queued)} cloud hunt(s) for project #{project_id}."
+ def _remote_hunt_queue_succeeded(self, result):
+  active = int(result.get("already_active") or 0)
+  queued = result.get("queued") or []
+  if active:
+   QMessageBox.information(
+    self, "Hunt already active",
+    f"This project already has {active} queued, running or paused hunt(s)."
    )
    self.refresh_remote_workspace()
-   self.remote_workspace_tabs.show()
-   self.remote_workspace_tabs.setCurrentWidget(self.remote_findings_table)
-   self.remote_stage_status.setText(
-    "HUNT QUEUED — the independent cloud worker will process every approved asset. "
-    "Findings and progress will appear below."
-   )
-   QMessageBox.information(
-    self,
-    "Cloud hunts queued",
-    f"Queued {len(queued)} independent cloud hunt job(s):\n\n"
-    f"{summary}\n\n"
-    "They continue independently of this desktop. The worker performs "
-    "policy-aware, bounded HTTPS GET assessment: attack-surface and API "
-    "discovery, security-configuration checks, response and client-side "
-    "analysis, and evidence correlation. It does not perform destructive "
-    "or state-changing exploit tests; potential leads still require review.",
-   )
-  except APIError as exc:
-   if queued:
-    QMessageBox.warning(
-     self,
-     "Cloud hunt partially queued",
-     f"Queued {len(queued)} job(s) before the API returned an error:\n"
-     f"{exc}",
-    )
-   else:
-    QMessageBox.warning(self, "Cloud hunt", str(exc))
-  except Exception as exc:
-   QMessageBox.warning(self, "Cloud hunt", f"Could not queue hunts: {exc}")
+   return
+  summary = "\n".join(f"Job #{job_id}: {host}" for job_id, host in queued)
+  self.statusBar().showMessage(
+   f"Queued {len(queued)} cloud hunt(s) for project #{self.remote_project_id}."
+  )
+  self.refresh_remote_workspace()
+  self.remote_workspace_tabs.show()
+  self.remote_workspace_tabs.setCurrentWidget(self.remote_findings_table)
+  self.remote_stage_status.setText(
+   "HUNT QUEUED — the independent cloud worker will process every approved asset. "
+   "Findings and progress will appear below."
+  )
+  QMessageBox.information(
+   self, "Cloud hunts queued",
+   f"Queued {len(queued)} independent cloud hunt job(s):\n\n{summary}\n\n"
+   "They continue independently of this desktop. The worker performs "
+   "policy-aware, bounded HTTPS GET assessment: attack-surface and API "
+   "discovery, security-configuration checks, response and client-side "
+   "analysis, and evidence correlation. It does not perform destructive "
+   "or state-changing exploit tests; potential leads still require review.",
+  )
+
+ def _remote_hunt_queue_failed(self, message):
+  self.remote_start_hunt_button.setEnabled(True)
+  self.remote_start_hunt_button.setText("▶  START HUNT")
+  self.remote_stage_status.setText("HUNT COULD NOT BE QUEUED — review the error and retry.")
+  QMessageBox.warning(self, "Cloud hunt", message)
 
  def analyze_remote_program(self):
   project = self.remote_project
   project_id = self.remote_project_id
-
   if not self.api_client or not project or not project_id:
-   QMessageBox.warning(
-    self, "Program analysis",
-    "Select an active or draft remote project first."
-   )
+   QMessageBox.warning(self, "Program analysis", "Select an active or draft remote project first.")
    return
-
   if str(project.get("status", "")).lower() == "deleted":
-   QMessageBox.warning(
-    self, "Program analysis",
-    "Archived projects cannot be analyzed. Restore the project first."
-   )
+   QMessageBox.warning(self, "Program analysis", "Archived projects cannot be analyzed. Restore the project first.")
    return
-
-  programme_url = (project.get("programme_url") or "").strip()
-  if not programme_url:
-   QMessageBox.warning(
-    self, "Program analysis",
-    "This project has no programme URL. Add a URL when creating a project."
-   )
+  if not (project.get("programme_url") or "").strip():
+   QMessageBox.warning(self, "Program analysis", "This project has no programme URL.")
    return
-
   policy_text = self.remote_policy_text.toPlainText().strip()
   self.remote_analyze_button.setEnabled(False)
   self.remote_policy_summary.clear()
-
   self.remote_policy_status.setText(
-   "Analyzing policy. No discovered target assets are being contacted."
+   "Analyzing policy in the background. No discovered target assets are being contacted."
+  )
+  self._analysis_thread = RemoteAPICallThread(
+   self.api_client.base_url, self.api_client._token,
+   "analyze_program", (project_id,), {"policy_text": policy_text}, self,
+  )
+  self._analysis_thread.succeeded.connect(self._handle_remote_program_analysis)
+  self._analysis_thread.failed.connect(self._handle_remote_program_analysis_error)
+  self._analysis_thread.start()
+
+ def _handle_remote_program_analysis(self, result):
+  project = self.remote_project or {}
+  project_id = self.remote_project_id
+  self.remote_policy_status.setText(
+   "Policy analysis saved. Candidate assets require independent review; "
+   "none have been approved."
+  )
+  analysis = result.get("analysis") or {}
+  extracted_text = analysis.get("policy_text", "")
+  if extracted_text:
+   self.remote_policy_text.setPlainText(extracted_text)
+  self.refresh_remote_policy_assets()
+
+  controls = analysis.get("execution_controls") or {}
+  rules = analysis.get("rules") or {}
+  scope = analysis.get("scope") or {}
+  summary = [
+   f"PROGRAMME: {analysis.get('title') or project.get('name')}",
+   f"POLICY SOURCE: {analysis.get('source', 'unknown')}",
+   f"PROGRAMME PLATFORM: {(analysis.get('provider') or {}).get('name', 'Unknown / generic')}",
+   f"ANALYSIS MODE: {(analysis.get('provider') or {}).get('analysis_mode', 'generic_policy_parser')}",
+   f"EXTRACTION CONFIDENCE: {(analysis.get('policy') or {}).get('extraction_confidence', 'low').upper()}",
+   f"SCOPE CANDIDATES: {len(scope.get('included_candidates', []))} included · {len(scope.get('excluded_candidates', []))} excluded · {len(scope.get('ambiguous_candidates', []))} ambiguous",
+   "",
+   "DOs / EXECUTION CONTROLS",
+   f"Passive discovery: {'ALLOWED' if controls.get('passive_discovery_allowed') else 'BLOCKED BY POLICY'}",
+   f"Active automated testing: {'ALLOWED SUBJECT TO APPROVAL' if controls.get('active_automated_testing_allowed') else 'BLOCKED BY POLICY'}",
+   f"Minimum request delay: {controls.get('minimum_request_delay_seconds', 'not extracted')} seconds",
+   f"Rate-limit evidence: {' ; '.join(controls.get('rate_limit_evidence', [])[:5]) or 'No explicit rate limit extracted'}",
+   "",
+   "POLICY RULES / DON'Ts",
+  ]
+  for category, entries in rules.items():
+   summary.append(f"{category.replace('_', ' ').title()}:")
+   summary.extend(f"  • {entry}" for entry in entries[:12])
+  summary += [
+   "",
+   "SCOPE CANDIDATES ARE NOT AUTHORIZATION.",
+   "Excluded assets override conflicting inclusions. Wildcards, CIDRs, path-limited URLs and ambiguous assets require separate human interpretation.",
+   "",
+   "WARNINGS",
+  ]
+  summary.extend(f"• {warning}" for warning in analysis.get("warnings", []))
+  self.remote_project_details.setPlainText("\n".join(summary))
+  self.remote_policy_summary.setPlainText("\n".join(summary))
+  self.remote_stage_status.setText(
+   "POLICY ANALYZED AND SAVED — review the original policy, extracted do's and don'ts, "
+   "and every candidate asset before approving the exact scope."
+  )
+  self.open_remote_project_tools()
+  self.remote_analyze_button.setEnabled(True)
+
+  self.statusBar().showMessage(
+   f"Policy analysis saved for remote project #{project_id}."
   )
 
-  try:
-   result = self.api_client.analyze_program(
-    project_id,
-    policy_text=policy_text,
-   )
 
-   self.remote_policy_status.setText(
-    "Policy analysis saved. Candidate assets require independent review; "
-    "none have been approved."
-   )
-   analysis = result.get("analysis") or {}
-   extracted_text = analysis.get("policy_text", "")
-   if extracted_text:
-    self.remote_policy_text.setPlainText(extracted_text)
-   self.refresh_remote_policy_assets()
-
-   controls = analysis.get("execution_controls") or {}
-   rules = analysis.get("rules") or {}
-   scope = analysis.get("scope") or {}
-   summary = [
-    f"PROGRAMME: {analysis.get('title') or project.get('name')}",
-    f"POLICY SOURCE: {analysis.get('source', 'unknown')}",
-    f"PROGRAMME PLATFORM: {(analysis.get('provider') or {}).get('name', 'Unknown / generic')}",
-    f"ANALYSIS MODE: {(analysis.get('provider') or {}).get('analysis_mode', 'generic_policy_parser')}",
-    f"EXTRACTION CONFIDENCE: {(analysis.get('policy') or {}).get('extraction_confidence', 'low').upper()}",
-    f"SCOPE CANDIDATES: {len(scope.get('included_candidates', []))} included · {len(scope.get('excluded_candidates', []))} excluded · {len(scope.get('ambiguous_candidates', []))} ambiguous",
-    "",
-    "DOs / EXECUTION CONTROLS",
-    f"Passive discovery: {'ALLOWED' if controls.get('passive_discovery_allowed') else 'BLOCKED BY POLICY'}",
-    f"Active automated testing: {'ALLOWED SUBJECT TO APPROVAL' if controls.get('active_automated_testing_allowed') else 'BLOCKED BY POLICY'}",
-    f"Minimum request delay: {controls.get('minimum_request_delay_seconds', 'not extracted')} seconds",
-    f"Rate-limit evidence: {' ; '.join(controls.get('rate_limit_evidence', [])[:5]) or 'No explicit rate limit extracted'}",
-    "",
-    "POLICY RULES / DON'Ts",
-   ]
-   for category, entries in rules.items():
-    summary.append(f"{category.replace('_', ' ').title()}:")
-    summary.extend(f"  • {entry}" for entry in entries[:12])
-   summary += [
-    "",
-    "SCOPE CANDIDATES ARE NOT AUTHORIZATION.",
-    "Excluded assets override conflicting inclusions. Wildcards, CIDRs, path-limited URLs and ambiguous assets require separate human interpretation.",
-    "",
-    "WARNINGS",
-   ]
-   summary.extend(f"• {warning}" for warning in analysis.get("warnings", []))
-   self.remote_project_details.setPlainText("\n".join(summary))
-   self.remote_policy_summary.setPlainText("\n".join(summary))
-   self.remote_stage_status.setText(
-    "POLICY ANALYZED AND SAVED — review the original policy, extracted do's and don'ts, "
-    "and every candidate asset before approving the exact scope."
-   )
-   self.open_remote_project_tools()
-   self.remote_analyze_button.setEnabled(True)
-
-   self.statusBar().showMessage(
-    f"Policy analysis saved for remote project #{project_id}."
-   )
-
-  except APIError as exc:
-   self.remote_policy_status.setText(
-    "Automatic retrieval failed. You can paste the official policy text below and analyze it again."
-   )
-   self.remote_analyze_button.setEnabled(True)
-   self.open_remote_project_tools()
-   QMessageBox.warning(self, "Program analysis", str(exc))
-
-  except Exception as exc:
-   self.remote_policy_status.setText(
-    "Automatic retrieval failed. You can paste the official policy text below and analyze it again."
-   )
-   self.remote_analyze_button.setEnabled(True)
-   self.open_remote_project_tools()
-   QMessageBox.warning(
-    self, "Program analysis",
-    f"Unexpected error: {exc}"
-   )
+ def _handle_remote_program_analysis_error(self, message):
+  self.remote_policy_status.setText(
+   "Automatic retrieval failed. Paste the official policy text and analyze it again."
+  )
+  self.remote_analyze_button.setEnabled(True)
+  self.open_remote_project_tools()
+  QMessageBox.warning(self, "Program analysis", message)
 
  def _selected_remote_policy_asset(self):
   if not getattr(self, "remote_policy_assets", None):
@@ -976,38 +923,43 @@ class Window(QMainWindow):
   download_dir.mkdir(parents=True, exist_ok=True)
   destination, _ = QFileDialog.getSaveFileName(
    self, "Download security assessment report",
-   str(download_dir / filename),
-   "All files (*)",
+   str(download_dir / filename), "All files (*)",
   )
   if not destination:
    return
+  self._report_destination = destination
+  self._report_project_id = int(self.remote_project_id)
+  self.remote_download_report_button.setEnabled(False)
+  self.remote_stage_status.setText("Generating and downloading the report in the background…")
+  self._manual_report_thread = RemoteAPICallThread(
+   self.api_client.base_url, self.api_client._token,
+   "download_report", (self.remote_project_id, fmt), {}, self,
+  )
+  self._manual_report_thread.succeeded.connect(self._remote_report_downloaded)
+  self._manual_report_thread.failed.connect(self._remote_report_download_failed)
+  self._manual_report_thread.finished.connect(
+   lambda: self.remote_download_report_button.setEnabled(True)
+  )
+  self._manual_report_thread.start()
+
+ def _remote_report_downloaded(self, payload):
   try:
-   payload = self.api_client.download_report(self.remote_project_id, fmt)
-   Path(destination).write_bytes(payload)
+   Path(self._report_destination).write_bytes(payload)
    workspace = getattr(self, "cloud_workspace", None)
    if workspace is not None:
-    try:
-     jobs = self.api_client.list_project_resource(self.remote_project_id, "jobs")
-     hunt_jobs = [job for job in jobs if job.get("job_type") == "Automated hunt"]
-     if hunt_jobs:
-      latest_hunt_id = max(int(job.get("id", 0)) for job in hunt_jobs)
-      workspace._settings.setValue(
-       f"reports/notified/project_{self.remote_project_id}", str(latest_hunt_id)
-      )
-    except APIError:
-     pass
     workspace.remote_stage_status.setText(
      "HUNT FINISHED — report downloaded. You can download it again in another format."
     )
    QMessageBox.information(
     self, "Report downloaded",
-    f"Your first-person security report was saved to:\n{destination}\n\n"
+    f"Your first-person security report was saved to:\n{self._report_destination}\n\n"
     "Review all findings and evidence before submitting it to the programme."
    )
-  except APIError as exc:
-   QMessageBox.warning(self, "Report download", str(exc))
   except Exception as exc:
    QMessageBox.warning(self, "Report download", f"Could not save report: {exc}")
+
+ def _remote_report_download_failed(self, message):
+  QMessageBox.warning(self, "Report download", message)
 
  def refresh_remote_projects(self):
   workspace = getattr(self, "cloud_workspace", None)
@@ -1019,50 +971,61 @@ class Window(QMainWindow):
  def new_remote_project(self):
   if not self.api_client:
    return
-
   name = self.remote_project_name.text().strip()
   programme_url = self.remote_project_url.text().strip()
-
   if not name:
    QMessageBox.warning(self, "Create project", "Enter a project name.")
    return
   if not programme_url.lower().startswith("https://"):
    QMessageBox.warning(self, "Create project", "Enter the official programme URL beginning with https://.")
    return
+  self.remote_create_project_button.setEnabled(False)
+  self.remote_stage_status.setText("Creating the project securely on the cloud API…")
+  self._create_project_thread = RemoteAPICallThread(
+   self.api_client.base_url, self.api_client._token,
+   "create_project", (name, programme_url), {}, self,
+  )
+  self._create_project_thread.succeeded.connect(self._remote_project_created)
+  self._create_project_thread.failed.connect(self._remote_project_create_failed)
+  self._create_project_thread.start()
 
-  try:
-   project = self.api_client.create_project(name, programme_url)
-   self.remote_project_name.clear()
-   self.remote_project_url.clear()
-   self.refresh_remote_projects()
-   self.remote_project_id = int(project["id"])
-   self.remote_project = project
-   self.remote_policy_text.clear()
-   self.remote_selected_project_title.setText(project.get("name", "New project"))
-   self.remote_scope_hint.setText("Project created. Review the policy analysis and approve the exact included assets before starting a hunt.")
-   self.remote_project_details.setPlainText(
-    f"Created remote project #{project['id']}\n"
-    f"Name: {project['name']}\n"
-    f"Status: {project['status']}\n"
-    f"Programme URL: {project.get('programme_url', '') or 'Not supplied'}\n\n"
-    "The project is stored on the central API server."
-   )
-   self.remote_create_project_box.hide()
-   self.remote_analyze_button.show()
-   self.remote_selected_project_title.show()
-   self.remote_stage_status.setText(
-    "PROJECT CREATED — next, press ANALYZE PROJECT. The programme policy will be retrieved and saved before any target testing."
-   )
-   self.remote_analyze_button.setEnabled(True)
-   self.remote_workspace_tabs.hide()
-   self.remote_start_hunt_button.hide()
-   self.refresh_remote_workspace()
-   QMessageBox.information(
-    self, "Project created",
-    f"Project '{project.get('name')}' was created. Next step: Analyze Project."
-   )
-  except APIError as exc:
-   QMessageBox.warning(self, "Create project", str(exc))
+ def _remote_project_created(self, project):
+  self.remote_project_name.clear()
+  self.remote_project_url.clear()
+  self.remote_project_id = int(project["id"])
+  self.remote_project = project
+  self.remote_policy_text.clear()
+  self.remote_selected_project_title.setText(project.get("name", "New project"))
+  self.remote_scope_hint.setText(
+   "Project created. Review the policy analysis and approve the exact included assets before starting a hunt."
+  )
+  self.remote_project_details.setPlainText(
+   f"Created remote project #{project['id']}\n"
+   f"Name: {project['name']}\n"
+   f"Status: {project['status']}\n"
+   f"Programme URL: {project.get('programme_url', '') or 'Not supplied'}\n\n"
+   "The project is stored on the central API server."
+  )
+  self.remote_create_project_box.hide()
+  self.remote_analyze_button.show()
+  self.remote_selected_project_title.show()
+  self.remote_stage_status.setText(
+   "PROJECT CREATED — next, press ANALYZE PROJECT. The programme policy will be retrieved and saved before any target testing."
+  )
+  self.remote_analyze_button.setEnabled(True)
+  self.remote_workspace_tabs.hide()
+  self.remote_start_hunt_button.hide()
+  self.remote_create_project_button.setEnabled(True)
+  self.refresh_remote_workspace()
+  QMessageBox.information(
+   self, "Project created",
+   f"Project '{project.get('name')}' was created. Next step: Analyze Project."
+  )
+
+ def _remote_project_create_failed(self, message):
+  self.remote_create_project_button.setEnabled(True)
+  self.remote_stage_status.setText("PROJECT CREATION FAILED — check the API connection and retry.")
+  QMessageBox.warning(self, "Create project", message)
 
  def select_remote_project(self, item):
   project_id = item.data(Qt.UserRole)

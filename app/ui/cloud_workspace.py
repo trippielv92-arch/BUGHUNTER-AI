@@ -5,13 +5,186 @@ from the authenticated central API. The persistent worker is independent.
 """
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, QSettings
+from PySide6.QtCore import Qt, QTimer, QSettings, QThread, Signal
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QLineEdit,
     QPushButton, QListWidget, QGroupBox, QFrame, QTextEdit, QTabWidget,
     QTableWidget, QTableWidgetItem, QHeaderView, QProgressBar, QListWidgetItem,
     QComboBox, QMessageBox, QFileDialog,
 )
+
+
+from concurrent.futures import ThreadPoolExecutor
+from app.services.api_client import APIClient
+
+
+class WorkspaceFetchThread(QThread):
+    succeeded = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, base_url, token, project_id, parent=None):
+        super().__init__(parent)
+        self.base_url = base_url
+        self.token = token
+        self.project_id = int(project_id)
+
+    def run(self):
+        client = APIClient(self.base_url, timeout=8.0)
+        client._token = self.token
+        names = (
+            "assets", "findings", "endpoints", "checks",
+            "test-cases", "jobs", "evidence", "activities",
+        )
+        try:
+            calls = {
+                "project": lambda: client.get_project(self.project_id),
+                "policies": lambda: client.list_program_policies(self.project_id),
+            }
+            calls.update({
+                name: (lambda resource=name: client.list_project_resource(self.project_id, resource))
+                for name in names
+            })
+            with ThreadPoolExecutor(max_workers=6) as pool:
+                futures = {name: pool.submit(call) for name, call in calls.items()}
+                result = {name: future.result() for name, future in futures.items()}
+            if not isinstance(result["project"], dict):
+                raise RuntimeError("The API returned invalid project data.")
+            for name in names:
+                if not isinstance(result[name], list):
+                    raise RuntimeError(f"The API returned invalid {name} data.")
+            if not isinstance(result["policies"], list):
+                raise RuntimeError("The API returned invalid programme policy data.")
+            result["project_id"] = self.project_id
+            self.succeeded.emit(result)
+        except Exception as exc:
+            self.failed.emit(f"{type(exc).__name__}: {exc}")
+        finally:
+            client.close()
+
+
+class ReportDownloadThread(QThread):
+    succeeded = Signal(str)
+    failed = Signal(str)
+
+    def __init__(self, base_url, token, project_id, destination, parent=None):
+        super().__init__(parent)
+        self.base_url = base_url
+        self.token = token
+        self.project_id = int(project_id)
+        self.destination = str(destination)
+
+    def run(self):
+        client = APIClient(self.base_url, timeout=20.0)
+        client._token = self.token
+        try:
+            payload = client.download_report(self.project_id, "pdf")
+            from pathlib import Path
+            path = Path(self.destination)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(payload)
+            self.succeeded.emit(str(path))
+        except Exception as exc:
+            self.failed.emit(f"{type(exc).__name__}: {exc}")
+        finally:
+            client.close()
+
+
+class RemoteAPICallThread(QThread):
+    succeeded = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, base_url, token, method, args=(), kwargs=None, parent=None):
+        super().__init__(parent)
+        self.base_url = base_url
+        self.token = token
+        self.method = method
+        self.args = tuple(args)
+        self.kwargs = dict(kwargs or {})
+
+    def run(self):
+        client = APIClient(self.base_url, timeout=30.0)
+        client._token = self.token
+        try:
+            result = getattr(client, self.method)(*self.args, **self.kwargs)
+            self.succeeded.emit(result)
+        except Exception as exc:
+            self.failed.emit(f"{type(exc).__name__}: {exc}")
+        finally:
+            client.close()
+
+
+class HuntQueueThread(QThread):
+    succeeded = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, base_url, token, project_id, parent=None):
+        super().__init__(parent)
+        self.base_url = base_url
+        self.token = token
+        self.project_id = int(project_id)
+
+    def run(self):
+        client = APIClient(self.base_url, timeout=20.0)
+        client._token = self.token
+        queued = []
+        try:
+            jobs = client.list_project_resource(self.project_id, "jobs")
+            active = [
+                job for job in jobs
+                if job.get("job_type") == "Automated hunt"
+                and job.get("status") in {"queued", "running", "paused"}
+            ]
+            if active:
+                self.succeeded.emit({"already_active": len(active), "queued": []})
+                return
+            assets = client.list_project_resource(self.project_id, "assets")
+            approved = [
+                asset for asset in assets
+                if asset.get("included") and asset.get("approved") and asset.get("host")
+            ]
+            if not approved:
+                raise RuntimeError("This project has no explicitly approved in-scope assets.")
+            for asset in approved:
+                host = asset["host"]
+                job = client.start_hunt(
+                    self.project_id, f"https://{host}/", max_pages=100
+                )
+                queued.append((job.get("id"), host))
+            self.succeeded.emit({"already_active": 0, "queued": queued})
+        except Exception as exc:
+            detail = f"{type(exc).__name__}: {exc}"
+            if queued:
+                detail = f"Partially queued {len(queued)} job(s): {queued}. {detail}"
+            self.failed.emit(detail)
+        finally:
+            client.close()
+
+
+class LoginThread(QThread):
+    succeeded = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, base_url, username, password, parent=None):
+        super().__init__(parent)
+        self.base_url = base_url
+        self.username = username
+        self.password = password
+
+    def run(self):
+        client = APIClient(self.base_url, timeout=15.0)
+        try:
+            client.login(self.username, self.password)
+            account = client.me()
+            if not isinstance(account, dict) or not account.get("id"):
+                raise RuntimeError("The API returned an invalid account profile.")
+            self.succeeded.emit({
+                "token": client._token,
+                "account": account,
+            })
+        except Exception as exc:
+            self.failed.emit(f"{type(exc).__name__}: {exc}")
+        finally:
+            client.close()
 
 
 class CloudWorkspace(QWidget):
@@ -396,19 +569,67 @@ class CloudWorkspace(QWidget):
         if not project_id:
             return
         self._refreshing = True
-        try:
-            project = self.client.get_project(project_id)
-            resources = {}
-            for name in (
-                "assets", "findings", "endpoints", "checks",
-                "test-cases", "jobs", "evidence", "activities",
-            ):
-                value = self.client.list_project_resource(project_id, name)
-                if not isinstance(value, list):
-                    raise RuntimeError(f"The API returned invalid {name} data.")
-                resources[name] = value
+        self.remote_stage_status.setText("Syncing project data in the background…")
+        self._refresh_thread = WorkspaceFetchThread(
+            self.client.base_url, self.client._token, project_id, self
+        )
+        self._refresh_thread.succeeded.connect(self._apply_workspace_snapshot)
+        self._refresh_thread.failed.connect(self._workspace_refresh_failed)
+        self._refresh_thread.finished.connect(self._workspace_refresh_finished)
+        self._refresh_thread.start()
 
-            policies = self.client.list_program_policies(project_id)
+    def _workspace_refresh_finished(self):
+        self._refreshing = False
+
+    def _workspace_refresh_failed(self, message):
+        self.host_window.statusBar().showMessage(f"Workspace refresh failed: {message}")
+
+    def _report_download_succeeded(self, report_path):
+        project_id = self.host_window.remote_project_id
+        if project_id and self._last_report_hunt_id:
+            self._settings.setValue(
+                f"reports/notified/project_{project_id}",
+                str(self._last_report_hunt_id),
+            )
+        QMessageBox.information(
+            self, "Hunt finished — report ready",
+            "I generated your first-person PDF report and saved it to:\n"
+            f"{report_path}\n\nYou can also choose Word, HTML, Markdown or JSON below.",
+        )
+        self.remote_stage_status.setText(
+            "HUNT FINISHED — your report is ready to download. "
+            "The report separates confirmed findings, potential leads and incomplete checks."
+        )
+
+    def _report_download_failed(self, message):
+        project_id = self.host_window.remote_project_id
+        if project_id and self._last_report_hunt_id:
+            self._settings.setValue(
+                f"reports/notified/project_{project_id}",
+                f"failed:{self._last_report_hunt_id}",
+            )
+        self.remote_stage_status.setText(
+            "HUNT FINISHED — automatic PDF generation failed. Use DOWNLOAD REPORT to retry."
+        )
+        QMessageBox.warning(
+            self, "Hunt finished — report needs retry",
+            "The hunt has ended, but the automatic PDF could not be saved. "
+            "Use DOWNLOAD REPORT to retry.\n\n" + message,
+        )
+
+    def _report_download_finished(self):
+        self._report_download_in_progress = False
+
+    def _apply_workspace_snapshot(self, snapshot):
+        if int(self.host_window.remote_project_id or 0) != int(snapshot.get("project_id") or 0):
+            return
+        project = snapshot["project"]
+        resources = {name: snapshot[name] for name in (
+            "assets", "findings", "endpoints", "checks", "test-cases",
+            "jobs", "evidence", "activities",
+        )}
+        policies = snapshot["policies"]
+        try:
             latest_policy = policies[0] if policies and isinstance(policies[0], dict) else {}
             candidates = len(latest_policy.get("assets", []))
             assets = resources["assets"]
@@ -632,46 +853,28 @@ class CloudWorkspace(QWidget):
                 previously_notified = str(self._settings.value(notification_key, ""))
                 failed_marker = f"failed:{latest_hunt_id}"
                 report_generation_failed = previously_notified == failed_marker
-                if previously_notified not in {str(latest_hunt_id), failed_marker}:
-                    failed = sum(str(j.get("status", "")).lower() != "completed" for j in hunt_jobs)
-                    try:
-                        report_dir = Path.home() / "Downloads"
-                        report_dir.mkdir(parents=True, exist_ok=True)
-                        safe_name = "".join(
-                            char if char.isalnum() or char in "-_" else "_"
-                            for char in str(project.get("name") or "bughunter-project")
-                        ).strip("_") or "bughunter-project"
-                        report_path = report_dir / (
-                            f"{safe_name}_hunt_{latest_hunt_id}_security_report.pdf"
-                        )
-                        report_bytes = self.client.download_report(project_id, "pdf")
-                        report_path.write_bytes(report_bytes)
-                        self._settings.setValue(notification_key, str(latest_hunt_id))
-                        message = (
-                            "Hunt finished. I generated your first-person PDF report and saved it to:\n"
-                            f"{report_path}\n\n"
-                            "You can also choose Word, HTML, Markdown or JSON below."
-                        )
-                        if failed:
-                            message += f"\n\n{failed} job(s) did not complete successfully; the report marks the coverage as partial."
-                        QMessageBox.information(self, "Hunt finished — report ready", message)
-                    except Exception as report_error:
-                        report_generation_failed = True
-                        self._settings.setValue(notification_key, failed_marker)
-                        self.remote_stage_status.setText(
-                            "HUNT FINISHED — automatic PDF generation failed. Use DOWNLOAD REPORT to retry."
-                        )
-                        QMessageBox.warning(
-                            self,
-                            "Hunt finished — report needs retry",
-                            "The hunt has ended, but the automatic PDF could not be saved. "
-                            "Use DOWNLOAD REPORT to generate it again.\n\n"
-                            f"{type(report_error).__name__}: {report_error}",
-                        )
+                if previously_notified not in {str(latest_hunt_id), failed_marker} and not getattr(self, "_report_download_in_progress", False):
+                    report_dir = Path.home() / "Downloads"
+                    safe_name = "".join(
+                        char if char.isalnum() or char in "-_" else "_"
+                        for char in str(project.get("name") or "bughunter-project")
+                    ).strip("_") or "bughunter-project"
+                    report_path = report_dir / f"{safe_name}_hunt_{latest_hunt_id}_security_report.pdf"
+                    self._last_report_hunt_id = latest_hunt_id
+                    self._report_download_in_progress = True
+                    self._report_thread = ReportDownloadThread(
+                        self.client.base_url, self.client._token, project_id, report_path, self,
+                    )
+                    self._report_thread.succeeded.connect(self._report_download_succeeded)
+                    self._report_thread.failed.connect(self._report_download_failed)
+                    self._report_thread.finished.connect(self._report_download_finished)
+                    self._report_thread.start()
                 if report_generation_failed:
                     self.remote_stage_status.setText(
                         "HUNT FINISHED — automatic PDF generation failed. Use DOWNLOAD REPORT to retry."
                     )
+                elif getattr(self, "_report_download_in_progress", False):
+                    self.remote_stage_status.setText("HUNT FINISHED — generating your PDF report in the background…")
                 else:
                     self.remote_stage_status.setText(
                         "HUNT FINISHED — your report is ready to download. "
@@ -688,10 +891,8 @@ class CloudWorkspace(QWidget):
             )
         except Exception as exc:
             self.host_window.statusBar().showMessage(
-                f"Workspace refresh failed: {type(exc).__name__}: {exc}"
+                f"Workspace render failed: {type(exc).__name__}: {exc}"
             )
-        finally:
-            self._refreshing = False
 
     def clear_workspace(self):
         for name in (
