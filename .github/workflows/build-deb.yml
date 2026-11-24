@@ -54,8 +54,13 @@ jobs:
           ./scripts/build_deb.sh
       - name: Inspect Debian package
         run: |
-          PACKAGE="$(find dist -maxdepth 1 -type f -name '*.deb' -print -quit)"
-          test -n "$PACKAGE"
+          mapfile -t PACKAGES < <(find dist -maxdepth 1 -type f -name '*.deb' -print)
+          test "${#PACKAGES[@]}" -eq 1
+          PACKAGE="${PACKAGES[0]}"
+          EXPECTED_VERSION="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          EXPECTED_PACKAGE="bughunter-ai_${EXPECTED_VERSION}_all.deb"
+          test "$(basename "$PACKAGE")" = "$EXPECTED_PACKAGE"
+          test "$(dpkg-deb -f "$PACKAGE" Version)" = "$EXPECTED_VERSION"
           dpkg-deb --info "$PACKAGE"
           mkdir -p /tmp/bughunter-package
           dpkg-deb --extract "$PACKAGE" /tmp/bughunter-package
