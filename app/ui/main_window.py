@@ -270,6 +270,11 @@ class Window(QMainWindow):
   self.remote_policy_status.setWordWrap(True)
   self.remote_policy_status.setStyleSheet("color:#e9c46a;padding:6px")
   policy_layout.addWidget(self.remote_policy_status)
+  self.remote_policy_summary = QTextEdit()
+  self.remote_policy_summary.setReadOnly(True)
+  self.remote_policy_summary.setMaximumHeight(180)
+  self.remote_policy_summary.setPlaceholderText("The extracted do's, don'ts, rate limits and execution restrictions will appear here.")
+  policy_layout.addWidget(self.remote_policy_summary)
   self.remote_policy_assets = QTableWidget(0, 6)
   self.remote_policy_assets.setHorizontalHeaderLabels(["ID", "Candidate", "Classification", "Confidence", "Review", "Type"])
   self.remote_policy_assets.setSelectionBehavior(QTableWidget.SelectRows)
@@ -469,7 +474,6 @@ class Window(QMainWindow):
     "Excluded assets remain unapproved."
    )
    self.refresh_remote_workspace()
-   self.remote_workspace_tabs.show()
   except APIError as exc:
    QMessageBox.warning(self, "Approve scope", str(exc))
   except Exception as exc:
@@ -642,6 +646,7 @@ class Window(QMainWindow):
    ]
    summary.extend(f"• {warning}" for warning in analysis.get("warnings", []))
    self.remote_project_details.setPlainText("\n".join(summary))
+   self.remote_policy_summary.setPlainText("\n".join(summary))
    self.remote_stage_status.setText(
     "POLICY ANALYZED AND SAVED — review the original policy, extracted do's and don'ts, "
     "and every candidate asset before approving the exact scope."
