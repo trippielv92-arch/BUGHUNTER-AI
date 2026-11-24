@@ -3,11 +3,12 @@
 The desktop is a client only: all project state and hunt results are loaded
 from the authenticated central API. The persistent worker is independent.
 """
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QSettings
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QLineEdit,
     QPushButton, QListWidget, QGroupBox, QFrame, QTextEdit, QTabWidget,
     QTableWidget, QTableWidgetItem, QHeaderView, QProgressBar, QListWidgetItem,
+    QComboBox, QMessageBox, QFileDialog,
 )
 
 
@@ -19,6 +20,7 @@ class CloudWorkspace(QWidget):
         self.host_window = window
         self.client = window.api_client
         self._refreshing = False
+        self._settings = QSettings("BugHunterAI", "BugHunterAI")
         self._build()
         self.timer = QTimer(self)
         self.timer.setInterval(10000)
@@ -90,34 +92,26 @@ class CloudWorkspace(QWidget):
         create_grid.addWidget(self.remote_project_name, 1, 0)
         create_grid.addWidget(self.remote_project_url, 1, 1)
         create = QPushButton("＋  CREATE PROJECT")
-        create.setMinimumHeight(40)
+        create.setMinimumHeight(42)
         create.clicked.connect(self.host_window.new_remote_project)
         create_grid.addWidget(create, 1, 2)
+        self.remote_create_project_button = create
+        self.remote_analyze_button = QPushButton("ANALYZE PROJECT  →")
+        self.remote_analyze_button.setMinimumHeight(42)
+        self.remote_analyze_button.setStyleSheet("background:#0d8b70")
+        self.remote_analyze_button.setEnabled(False)
+        self.remote_analyze_button.clicked.connect(self.host_window.analyze_remote_program)
+        create_grid.addWidget(self.remote_analyze_button, 1, 3)
         create_grid.setColumnStretch(0, 1)
         create_grid.setColumnStretch(1, 2)
         outer.addWidget(create_box)
 
+        # Keep history widgets for compatibility, but do not expose them as navigation.
         body = QHBoxLayout()
-        body.setSpacing(14)
-        sidebar = QGroupBox("YOUR PROJECTS")
-        sidebar.setMinimumWidth(245)
-        sidebar.setMaximumWidth(310)
-        side = QVBoxLayout(sidebar)
-        side.addWidget(QLabel("ACTIVE WORKSPACES"))
         self.remote_project_list = QListWidget()
-        self.remote_project_list.setMinimumHeight(260)
-        self.remote_project_list.itemClicked.connect(self.host_window.select_remote_project)
-        side.addWidget(self.remote_project_list, 3)
-        side.addWidget(QLabel("ARCHIVED"))
         self.remote_archived_list = QListWidget()
-        self.remote_archived_list.setMaximumHeight(130)
+        self.remote_project_list.itemClicked.connect(self.host_window.select_remote_project)
         self.remote_archived_list.itemClicked.connect(self.host_window.select_remote_archived_project)
-        side.addWidget(self.remote_archived_list, 1)
-        hint = QLabel("Every project has its own reviewed scope, attack surface, assessments and evidence.")
-        hint.setWordWrap(True)
-        hint.setStyleSheet("color:#8298b5;font-size:11px;padding:6px")
-        side.addWidget(hint)
-        body.addWidget(sidebar)
 
         work = QWidget()
         work_layout = QVBoxLayout(work)
@@ -131,12 +125,25 @@ class CloudWorkspace(QWidget):
         self.remote_archive_button = QPushButton("Delete project")
         self.remote_archive_button.setStyleSheet("background:#46566d")
         self.remote_archive_button.clicked.connect(self.host_window.archive_remote_project)
+        self.remote_archive_button.hide()
         project_header.addWidget(self.remote_archive_button)
         self.remote_restore_button = QPushButton("Restore")
         self.remote_restore_button.setStyleSheet("background:#46566d")
         self.remote_restore_button.clicked.connect(self.host_window.restore_remote_project)
+        self.remote_restore_button.hide()
         project_header.addWidget(self.remote_restore_button)
         work_layout.addLayout(project_header)
+        self.remote_selected_project_title.hide()
+
+        self.remote_stage_status = QLabel(
+            "Create a project with its official programme URL and name, then analyze the programme policy."
+        )
+        self.remote_stage_status.setWordWrap(True)
+        self.remote_stage_status.setStyleSheet(
+            "color:#b8cbe2;background:#12243a;border:1px solid #2a4564;"
+            "border-radius:9px;padding:12px;font-size:12px"
+        )
+        work_layout.addWidget(self.remote_stage_status)
 
         actions = QHBoxLayout()
         self.remote_scope_hint = QLabel(
@@ -148,21 +155,47 @@ class CloudWorkspace(QWidget):
             "border-radius:7px;padding:10px"
         )
         actions.addWidget(self.remote_scope_hint, 1)
+        self.remote_scope_hint.hide()
         policy = QPushButton("POLICY & SCOPE")
         policy.setStyleSheet("background:#31577e")
         policy.setMinimumHeight(42)
         policy.clicked.connect(self.host_window.open_remote_project_tools)
+        policy.hide()
         actions.addWidget(policy)
         self.remote_start_hunt_button = QPushButton("▶  START HUNT")
         self.remote_start_hunt_button.setStyleSheet("background:#087f5b;font-size:14px")
         self.remote_start_hunt_button.setMinimumHeight(42)
         self.remote_start_hunt_button.setEnabled(False)
+        self.remote_start_hunt_button.hide()
+        self.remote_analyze_button.setEnabled(False)
+        self.remote_workspace_tabs.hide()
+        self.remote_report_format.hide()
+        self.remote_download_report_button.hide()
+        self.remote_selected_project_title.hide()
+        self.remote_stage_status.setText(
+            "Create a project with its official programme URL and name, then analyze the programme policy."
+        )
         self.remote_start_hunt_button.clicked.connect(self.host_window.start_remote_hunt)
+        self.remote_start_hunt_button.hide()
         actions.addWidget(self.remote_start_hunt_button)
+
+        self.remote_report_format = QComboBox()
+        for label, value in (("PDF", "pdf"), ("Word (.docx)", "docx"),
+                             ("HTML", "html"), ("Markdown", "markdown"),
+                             ("JSON", "json")):
+            self.remote_report_format.addItem(label, value)
+        self.remote_download_report_button = QPushButton("DOWNLOAD REPORT")
+        self.remote_download_report_button.setStyleSheet("background:#0d8b70")
+        self.remote_download_report_button.clicked.connect(self.host_window.download_remote_report)
+        self.remote_report_format.hide()
+        self.remote_download_report_button.hide()
+        actions.addWidget(self.remote_report_format)
+        actions.addWidget(self.remote_download_report_button)
         work_layout.addLayout(actions)
 
         self.remote_workspace_tabs = QTabWidget()
         work_layout.addWidget(self.remote_workspace_tabs, 1)
+        self.remote_workspace_tabs.hide()
         self._build_overview()
         self.remote_assets_table = self._make_table(
             ["Host", "Scope decision", "Authorization", "Policy / review notes"]
@@ -176,7 +209,7 @@ class CloudWorkspace(QWidget):
         self.remote_findings_table = self._make_table(
             ["Severity", "Confidence", "Status", "Category", "Finding", "Affected asset", "Evidence"]
         )
-        self.remote_workspace_tabs.addTab(self.remote_findings_table, "Findings")
+        self.remote_workspace_tabs.addTab(self.remote_findings_table, "Vulnerabilities")
         self.remote_jobs_table = self._make_table(
             ["Job", "Status", "Progress", "Last checkpoint", "Created", "Finished / error"]
         )
@@ -341,11 +374,18 @@ class CloudWorkspace(QWidget):
                 self.remote_project_list.setCurrentItem(selected_item)
                 self.host_window.select_remote_project(selected_item)
             elif selected_id is None:
-                self.clear_workspace()
-                self.remote_project_list.clearSelection()
-                self.host_window.statusBar().showMessage(
-                    f"Loaded {len(projects)} project(s). Select one to view its workspace."
-                )
+                active_projects = [p for p in projects if str(p.get("status", "")).lower() != "deleted"]
+                if active_projects:
+                    item = self.remote_project_list.item(0)
+                    if item is not None:
+                        self.remote_project_list.setCurrentItem(item)
+                        self.host_window.select_remote_project(item)
+                else:
+                    self.clear_workspace()
+                    self.remote_project_list.clearSelection()
+                    self.host_window.statusBar().showMessage(
+                        "Ready for a new authorized programme project."
+                    )
             else:
                 self.host_window.remote_project_id = None
                 self.host_window.remote_project = None
@@ -403,6 +443,8 @@ class CloudWorkspace(QWidget):
                 self.remote_metric_values[key].setText(str(value))
 
             self.host_window.remote_project = project
+            self.remote_selected_project_title.show()
+            self.remote_stage_status.show()
             self.remote_selected_project_title.setText(
                 project.get("name", "Selected project")
             )
@@ -551,6 +593,21 @@ class CloudWorkspace(QWidget):
             archived = str(project.get("status", "")).lower() == "deleted"
             self.remote_archive_button.setEnabled(not archived)
             self.remote_restore_button.setEnabled(archived)
+            has_policy = bool(latest_policy)
+            self.remote_analyze_button.setEnabled(
+                not archived and bool(project.get("programme_url")) and not active_jobs
+            )
+            self.remote_analyze_button.setText(
+                "RE-ANALYZE POLICY" if has_policy else "ANALYZE PROJECT  →"
+            )
+            self.remote_stage_status.setText(
+                f"PROJECT: {project.get('name', 'Selected project')}  ·  "
+                + ("STEP 3 — APPROVED SCOPE. Start the hunt when ready." if ready
+                   else ("STEP 2 — POLICY SAVED. Review the extracted rules and exact assets, then approve scope." if has_policy
+                         else "STEP 2 — Analyze the official programme policy to extract scope, restrictions and testing rules."))
+            )
+            self.remote_scope_hint.setVisible(ready)
+            self.remote_start_hunt_button.setVisible(ready and not archived)
             self.remote_start_hunt_button.setEnabled(
                 ready and not archived and not active_jobs
             )
@@ -558,6 +615,37 @@ class CloudWorkspace(QWidget):
                 f"⏳  HUNT ACTIVE ({len(active_jobs)})" if active_jobs
                 else "▶  START HUNT"
             )
+            self.remote_workspace_tabs.setVisible(ready or bool(active_jobs) or bool(findings))
+            hunt_jobs = [j for j in jobs if j.get("job_type") == "Automated hunt"]
+            terminal_statuses = {"completed", "failed", "stopped"}
+            hunt_finished = bool(hunt_jobs) and all(
+                str(j.get("status", "")).lower() in terminal_statuses for j in hunt_jobs
+            )
+            self.remote_report_format.setVisible(hunt_finished)
+            self.remote_download_report_button.setVisible(hunt_finished)
+            if hunt_finished:
+                latest_hunt_id = max(int(j.get("id", 0)) for j in hunt_jobs)
+                notification_key = f"reports/notified/project_{project_id}"
+                previously_notified = str(self._settings.value(notification_key, ""))
+                if previously_notified != str(latest_hunt_id):
+                    self._settings.setValue(notification_key, str(latest_hunt_id))
+                    failed = sum(str(j.get("status", "")).lower() != "completed" for j in hunt_jobs)
+                    message = (
+                        "Your BugHunter AI hunt has finished. I prepared the project report; "
+                        "choose a format and download it from the report controls."
+                    )
+                    if failed:
+                        message += f" {failed} job(s) ended without a completed status; the report will identify partial coverage."
+                    QMessageBox.information(self, "Hunt finished — report ready", message)
+                self.remote_stage_status.setText(
+                    "HUNT FINISHED — your report is ready to download. "
+                    "The report separates confirmed findings, potential leads and incomplete checks."
+                )
+            elif active_jobs:
+                self.remote_stage_status.setText(
+                    "HUNT RUNNING IN THE CLOUD — progress and findings are updating below. "
+                    "You can close this desktop; the cloud worker continues independently."
+                )
             self.host_window.statusBar().showMessage(
                 f"Workspace synced · {len(approved)} approved assets · "
                 f"{len(endpoints)} endpoints · {len(findings)} findings"
