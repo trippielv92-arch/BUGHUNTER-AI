@@ -49,33 +49,96 @@ class Window(QMainWindow):
   self.job_refresh_timer.start()
   self.show_login()
  def show_login(self):
-  w=QWidget(); l=QVBoxLayout(w); l.setContentsMargins(250,100,250,100)
-  t=QLabel("BUGHUNTER AI"); t.setAlignment(Qt.AlignCenter); t.setStyleSheet("font-size:30px;font-weight:800;color:#35a7ff"); l.addWidget(t)
-  l.addWidget(QLabel("Personal authorized security research")); self.username=QLineEdit(); self.username.setPlaceholderText("Owner username")
-  self.password=QLineEdit(); self.password.setPlaceholderText("Password"); self.password.setEchoMode(QLineEdit.Password)
-  self.password_toggle=QToolButton(); self.password_toggle.setText("Show")
+  self.setWindowTitle("BugHunter AI — Sign in")
+  self.setMinimumSize(760,620)
+  self.resize(980,700)
+  w=QWidget()
+  w.setStyleSheet("""
+   QWidget { background:#091321; color:#e7eef9; font-family:Arial; }
+   QFrame#loginCard { background:#101e31; border:1px solid #29415e; border-radius:18px; }
+   QLineEdit { background:#0a1728; border:1px solid #304966; border-radius:8px;
+    padding:13px; color:#f2f7ff; font-size:14px; }
+   QPushButton { background:#087fdf; border:0; border-radius:8px; padding:13px;
+    color:white; font-weight:800; font-size:13px; }
+   QPushButton:hover { background:#2495f2; }
+  """)
+  outer=QVBoxLayout(w)
+  outer.setContentsMargins(36,30,36,24)
+  outer.addStretch(1)
+  card=QFrame()
+  card.setObjectName("loginCard")
+  card.setMaximumWidth(520)
+  layout=QVBoxLayout(card)
+  layout.setContentsMargins(36,34,36,30)
+  layout.setSpacing(14)
+  mark=QLabel("BH")
+  mark.setAlignment(Qt.AlignCenter)
+  mark.setFixedSize(58,58)
+  mark.setStyleSheet("background:#123b61;border:1px solid #286ba3;border-radius:16px;color:#72c8ff;font-size:24px;font-weight:900")
+  layout.addWidget(mark,0,Qt.AlignHCenter)
+  title=QLabel("BUGHUNTER AI")
+  title.setAlignment(Qt.AlignCenter)
+  title.setStyleSheet("font-size:27px;font-weight:900;letter-spacing:2px;color:#59baff")
+  layout.addWidget(title)
+  subtitle=QLabel("AUTHORIZED BUG BOUNTY RESEARCH")
+  subtitle.setAlignment(Qt.AlignCenter)
+  subtitle.setStyleSheet("font-size:10px;font-weight:800;letter-spacing:2px;color:#91a9c7")
+  layout.addWidget(subtitle)
+  description=QLabel(
+   "Sign in to your secure cloud workspace. Projects, approved scope, "
+   "hunt jobs and evidence are shared with the persistent research worker."
+  )
+  description.setWordWrap(True)
+  description.setAlignment(Qt.AlignCenter)
+  description.setStyleSheet("color:#a9bdd5;padding:8px 2px 12px")
+  layout.addWidget(description)
+
+  self.username=QLineEdit()
+  self.username.setPlaceholderText("Username")
+  self.username.setClearButtonEnabled(True)
+  layout.addWidget(self.username)
+  self.password=QLineEdit()
+  self.password.setPlaceholderText("Password")
+  self.password.setEchoMode(QLineEdit.Password)
+  self.password_toggle=QToolButton()
+  self.password_toggle.setText("Show")
   self.password_toggle.setCursor(Qt.PointingHandCursor)
+  self.password_toggle.setStyleSheet("background:#253a55;border-radius:7px;padding:10px;color:#d9e7f7")
   self.password_toggle.clicked.connect(self.toggle_password_visibility)
   password_row=QHBoxLayout()
-  password_row.addWidget(self.password)
+  password_row.setSpacing(8)
+  password_row.addWidget(self.password,1)
   password_row.addWidget(self.password_toggle)
-  l.addWidget(self.username)
-  l.addLayout(password_row)
-  self.remote_mode_checkbox = None
+  layout.addLayout(password_row)
+
+  self.remote_mode_checkbox=None
   if ENABLE_LOCAL_MODE:
-   self.remote_mode_checkbox = QCheckBox("Use local developer workspace")
+   self.remote_mode_checkbox=QCheckBox("Use local developer workspace")
    self.remote_mode_checkbox.setToolTip(
-    "Developer-only: use the separate local SQLite database instead of the cloud workspace."
+    "Developer-only: use the separate local SQLite workspace instead of cloud."
    )
    self.remote_mode_checkbox.setChecked(False)
-   l.addWidget(self.remote_mode_checkbox)
+   layout.addWidget(self.remote_mode_checkbox)
   else:
-   cloud_label = QLabel(f"Cloud workspace · {API_BASE_URL}")
-   cloud_label.setAlignment(Qt.AlignCenter)
-   cloud_label.setStyleSheet("color:#91a8c7;font-size:11px;padding:8px")
-   l.addWidget(cloud_label)
-  b=QPushButton("LOG IN"); b.clicked.connect(self.login); l.addWidget(b)
+   cloud=QLabel(f"●  CLOUD WORKSPACE  ·  {API_BASE_URL}")
+   cloud.setAlignment(Qt.AlignCenter)
+   cloud.setStyleSheet("color:#6bd7a8;font-size:10px;font-weight:800;padding:9px;background:#102b28;border-radius:7px")
+   layout.addWidget(cloud)
+
+  button=QPushButton("SIGN IN  →")
+  button.setMinimumHeight(48)
+  button.clicked.connect(self.login)
+  layout.addWidget(button)
+  self.password.returnPressed.connect(self.login)
+  footer=QLabel("Your account is authenticated by the central BugHunter AI API.")
+  footer.setAlignment(Qt.AlignCenter)
+  footer.setStyleSheet("color:#7087a4;font-size:10px;padding-top:5px")
+  layout.addWidget(footer)
+
+  outer.addWidget(card,0,Qt.AlignHCenter)
+  outer.addStretch(1)
   self.setCentralWidget(w)
+
  def toggle_password_visibility(self):
   visible = self.password.echoMode() == QLineEdit.Password
   self.password.setEchoMode(QLineEdit.Normal if visible else QLineEdit.Password)
@@ -1107,6 +1170,7 @@ class Window(QMainWindow):
     "Historical records remain on the server. Restoring returns the project "
     "to draft status and requires scope review and approval again."
    )
+   self.refresh_remote_workspace()
   except APIError as exc:
    QMessageBox.warning(self, "Archived project", str(exc))
 
