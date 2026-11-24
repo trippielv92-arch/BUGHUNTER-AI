@@ -624,6 +624,8 @@ class Window(QMainWindow):
    summary = [
     f"PROGRAMME: {analysis.get('title') or project.get('name')}",
     f"POLICY SOURCE: {analysis.get('source', 'unknown')}",
+    f"PROGRAMME PLATFORM: {(analysis.get('provider') or {}).get('name', 'Unknown / generic')}",
+    f"ANALYSIS MODE: {(analysis.get('provider') or {}).get('analysis_mode', 'generic_policy_parser')}",
     f"EXTRACTION CONFIDENCE: {(analysis.get('policy') or {}).get('extraction_confidence', 'low').upper()}",
     f"SCOPE CANDIDATES: {len(scope.get('included_candidates', []))} included · {len(scope.get('excluded_candidates', []))} excluded · {len(scope.get('ambiguous_candidates', []))} ambiguous",
     "",
@@ -659,13 +661,19 @@ class Window(QMainWindow):
    )
 
   except APIError as exc:
-   self.remote_policy_status.setText("Policy analysis failed.")
+   self.remote_policy_status.setText(
+    "Automatic retrieval failed. You can paste the official policy text below and analyze it again."
+   )
    self.remote_analyze_button.setEnabled(True)
+   self.open_remote_project_tools()
    QMessageBox.warning(self, "Program analysis", str(exc))
 
   except Exception as exc:
-   self.remote_policy_status.setText("Policy analysis failed.")
+   self.remote_policy_status.setText(
+    "Automatic retrieval failed. You can paste the official policy text below and analyze it again."
+   )
    self.remote_analyze_button.setEnabled(True)
+   self.open_remote_project_tools()
    QMessageBox.warning(
     self, "Program analysis",
     f"Unexpected error: {exc}"
