@@ -170,7 +170,6 @@ class CloudWorkspace(QWidget):
         self.remote_start_hunt_button.setEnabled(False)
         self.remote_start_hunt_button.hide()
         self.remote_start_hunt_button.clicked.connect(self.host_window.start_remote_hunt)
-        self.remote_start_hunt_button.hide()
         actions.addWidget(self.remote_start_hunt_button)
 
         self.remote_report_format = QComboBox()
@@ -641,12 +640,12 @@ class CloudWorkspace(QWidget):
                         report_path.write_bytes(report_bytes)
                         self._settings.setValue(notification_key, str(latest_hunt_id))
                         message = (
-                            "Hunt finished. I generated your first-person PDF report and saved it to:\\n"
-                            f"{report_path}\\n\\n"
+                            "Hunt finished. I generated your first-person PDF report and saved it to:\n"
+                            f"{report_path}\n\n"
                             "You can also choose Word, HTML, Markdown or JSON below."
                         )
                         if failed:
-                            message += f"\\n\\n{failed} job(s) did not complete successfully; the report marks the coverage as partial."
+                            message += f"\n\n{failed} job(s) did not complete successfully; the report marks the coverage as partial."
                         QMessageBox.information(self, "Hunt finished — report ready", message)
                     except Exception as report_error:
                         report_generation_failed = True
@@ -658,7 +657,7 @@ class CloudWorkspace(QWidget):
                             self,
                             "Hunt finished — report needs retry",
                             "The hunt has ended, but the automatic PDF could not be saved. "
-                            "Use DOWNLOAD REPORT to generate it again.\\n\\n"
+                            "Use DOWNLOAD REPORT to generate it again.\n\n"
                             f"{type(report_error).__name__}: {report_error}",
                         )
                 if report_generation_failed:
