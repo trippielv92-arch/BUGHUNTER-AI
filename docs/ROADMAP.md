@@ -34,3 +34,20 @@ BugHunter AI is one cloud-connected Parrot desktop client backed by an authentic
 - No destructive, state-changing or high-impact tests without explicit authorization and controlled test data.
 - Never mark a finding confirmed solely from a heuristic or response difference.
 - Never claim a hunt resumed at an exact checkpoint unless that checkpoint was actually restored.
+
+## Current release-hardening branch
+
+The `release/hardening-v0.4.0` branch adds the following regression-protected changes:
+
+- [x] Bound transient hunt retries to three total attempts, with short backoff between retries.
+- [x] Persist retry count in the existing durable job input; no schema migration is required.
+- [x] Keep transport/database exception text out of job records because it can contain secrets or request details.
+- [x] Include finding category in exact duplicate identity so different vulnerability classes on the same asset are not collapsed.
+- [x] Add two-account project/child-record isolation regression tests.
+- [x] Add finding identity/correlation and retry-boundary regression tests.
+- [ ] Obtain a passing full CI run and inspect the generated Debian package.
+- [ ] Verify production API, worker, database connectivity and account isolation against the deployed environment.
+- [ ] Complete worker heartbeat/lease observability and controlled retry recovery for process/database interruption.
+- [ ] Extend automated vulnerability verification only where a controlled test account or researcher-owned synthetic resource provides safe proof. Heuristic indicators remain potential findings, never automatic confirmations.
+
+These changes are hardening work, not a claim that the final release gates have passed.
