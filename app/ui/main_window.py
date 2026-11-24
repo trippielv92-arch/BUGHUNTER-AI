@@ -939,6 +939,7 @@ class Window(QMainWindow):
  def begin_new_remote_project(self):
   self.remote_project_id = None
   self.remote_project = None
+  self.cloud_workspace.clear_workspace()
   self.remote_project_list.clearSelection()
   self.remote_project_name.clear()
   self.remote_project_url.clear()
@@ -1046,6 +1047,8 @@ class Window(QMainWindow):
     f"Programme URL: {project.get('programme_url', '') or 'Not supplied'}\n\n"
     "The project is stored on the central API server."
    )
+   self.remote_create_project_box.hide()
+   self.remote_analyze_button.show()
    self.remote_selected_project_title.show()
    self.remote_stage_status.setText(
     "PROJECT CREATED — next, press ANALYZE PROJECT. The programme policy will be retrieved and saved before any target testing."
