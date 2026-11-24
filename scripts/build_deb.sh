@@ -63,5 +63,7 @@ EOF
 
 chmod 0755 "$PKG/DEBIAN/postinst" "$PKG/DEBIAN/postrm"
 mkdir -p "$ROOT/dist"
+# Never let a previously committed or stale package be uploaded as the current build.
+find "$ROOT/dist" -maxdepth 1 -type f -name "bughunter-ai_*_all.deb" -delete
 dpkg-deb --build --root-owner-group "$PKG" "$ROOT/dist/bughunter-ai_${VERSION}_all.deb"
 echo "Built: $ROOT/dist/bughunter-ai_${VERSION}_all.deb"
