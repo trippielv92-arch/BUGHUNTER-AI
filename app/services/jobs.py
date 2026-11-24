@@ -180,6 +180,16 @@ def update_job_progress(db, job_id, progress, checkpoint=None):
     return job
 
 
+def touch_job_heartbeat(db, job_id):
+    """Update the liveness timestamp for a running job without changing progress."""
+    job = db.get(AssessmentJob, job_id)
+    if job is None or job.status != "running":
+        return False
+    job.updated_at = utc_now()
+    db.commit()
+    return True
+
+
 def list_jobs(db, project_id):
     """Return fresh job state so desktop polling sees worker-side updates."""
     return db.scalars(
