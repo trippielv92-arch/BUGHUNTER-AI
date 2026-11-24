@@ -85,26 +85,37 @@ def test_account_cannot_insert_child_record_for_another_accounts_project(db):
     assert db.get(Project, second_project_id) is None
 
 
-def test_authenticated_api_hides_projects_from_other_accounts(db, monkeypatch):
+def test_authenticated_api_hides_projects_from_other_accounts(monkeypatch):
     from fastapi.testclient import TestClient
-    from sqlalchemy.orm import Session as ORMSession
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session as ORMSession, sessionmaker
+    from sqlalchemy.pool import StaticPool
 
     from app.api import server
+    from app.database.db import Base
     from app.services.auth import create_owner
 
     monkeypatch.setenv(
         "BUGHUNTER_API_SECRET",
         "test-only-api-secret-with-at-least-32-characters",
     )
-    first_owner_id = db.info["owner_id"]
-    second_owner = create_owner(
-        db,
-        "second-api-owner",
-        "second-api-owner-password-456",
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
     )
+    Base.metadata.create_all(engine)
+    TestSession = sessionmaker(bind=engine, expire_on_commit=False)
+
+    seed = TestSession()
+    try:
+        create_owner(seed, "api-first-owner", "api-first-owner-password-123")
+        create_owner(seed, "api-second-owner", "api-second-owner-password-456")
+    finally:
+        seed.close()
 
     def override_db():
-        request_db = ORMSession(bind=db.get_bind())
+        request_db = TestSession()
         try:
             yield request_db
         finally:
@@ -116,8 +127,8 @@ def test_authenticated_api_hides_projects_from_other_accounts(db, monkeypatch):
         first_login = client.post(
             "/api/v1/auth/login",
             json={
-                "username": "test-owner",
-                "password": "test-owner-password-123",
+                "username": "api-first-owner",
+                "password": "api-first-owner-password-123",
             },
         )
         assert first_login.status_code == 200
@@ -138,8 +149,8 @@ def test_authenticated_api_hides_projects_from_other_accounts(db, monkeypatch):
         second_login = client.post(
             "/api/v1/auth/login",
             json={
-                "username": "second-api-owner",
-                "password": "second-api-owner-password-456",
+                "username": "api-second-owner",
+                "password": "api-second-owner-password-456",
             },
         )
         assert second_login.status_code == 200
@@ -155,15 +166,12 @@ def test_authenticated_api_hides_projects_from_other_accounts(db, monkeypatch):
             headers=second_headers,
         ).status_code == 404
 
-        # The authenticated account cannot create child records for a project
-        # it cannot read, even when it knows the numeric project identifier.
         cross_account_write = client.post(
             f"/api/v1/projects/{private_project_id}/assets",
             headers=second_headers,
             json={"host": "example.com", "included": True, "notes": ""},
         )
         assert cross_account_write.status_code == 404
-
-        assert first_owner_id != second_owner.id
     finally:
         server.app.dependency_overrides.pop(server.get_db, None)
+        engine.dispose()
