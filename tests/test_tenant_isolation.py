@@ -8,6 +8,7 @@ from app.services.projects import create_project
 def test_project_and_child_reads_are_isolated_between_accounts(db):
     first_owner_id = db.info["owner_id"]
     first_project = create_project(db, "First account project")
+    first_project_id = first_project.id
 
     second_owner = User(
         username="second-account",
@@ -19,8 +20,9 @@ def test_project_and_child_reads_are_isolated_between_accounts(db):
 
     db.info["owner_id"] = second_owner.id
     second_project = create_project(db, "Second account private project")
+    second_project_id = second_project.id
     db.add(Finding(
-        project_id=second_project.id,
+        project_id=second_project_id,
         title="Private second-account finding",
         category="Information Disclosure",
         asset="https://private.example.test/",
@@ -45,9 +47,9 @@ def test_project_and_child_reads_are_isolated_between_accounts(db):
     projects = db.scalars(select(Project).order_by(Project.id)).all()
     findings = db.scalars(select(Finding).order_by(Finding.id)).all()
 
-    assert [project.id for project in projects] == [first_project.id]
+    assert [project.id for project in projects] == [first_project_id]
     assert [finding.title for finding in findings] == ["First account finding"]
-    assert db.get(Project, second_project.id) is None
+    assert db.get(Project, second_project_id) is None
 
 
 def test_account_cannot_insert_child_record_for_another_accounts_project(db):
@@ -64,6 +66,7 @@ def test_account_cannot_insert_child_record_for_another_accounts_project(db):
 
     db.info["owner_id"] = second_owner.id
     second_project = create_project(db, "Second account project")
+    second_project_id = second_project.id
     db.info["owner_id"] = first_owner_id
 
     db.add(Finding(
@@ -78,4 +81,4 @@ def test_account_cannot_insert_child_record_for_another_accounts_project(db):
 
     db.rollback()
     db.expunge_all()
-    assert db.get(Project, second_project.id) is None
+    assert db.get(Project, second_project_id) is None
