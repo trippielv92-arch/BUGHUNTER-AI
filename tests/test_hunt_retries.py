@@ -91,4 +91,4 @@ def test_job_heartbeat_updates_liveness_without_changing_progress(
     db.refresh(job)
     assert job.status == "running"
     assert job.progress == 42
-    assert job.updated_at > stale_timestamp
+    assert job.updated_at.replace(tzinfo=None) > stale_timestamp.replace(tzinfo=None)
