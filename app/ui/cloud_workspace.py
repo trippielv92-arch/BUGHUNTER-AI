@@ -600,16 +600,18 @@ class CloudWorkspace(QWidget):
                    else ("STEP 2 — POLICY SAVED. Review the extracted rules and exact assets, then approve scope." if has_policy
                          else "STEP 2 — Analyze the official programme policy to extract scope, restrictions and testing rules."))
             )
+            hunt_jobs = [j for j in jobs if j.get("job_type") == "Automated hunt"]
             self.remote_scope_hint.setVisible(ready)
-            self.remote_start_hunt_button.setVisible(ready and not archived)
+            self.remote_start_hunt_button.setVisible(
+                ready and not archived and (not hunt_jobs or bool(active_jobs))
+            )
             self.remote_start_hunt_button.setEnabled(
-                ready and not archived and not active_jobs
+                ready and not archived and not active_jobs and not hunt_jobs
             )
             self.remote_start_hunt_button.setText(
                 f"⏳  HUNT ACTIVE ({len(active_jobs)})" if active_jobs
-                else "▶  START HUNT"
+                else ("HUNT FINISHED" if hunt_jobs else "▶  START HUNT")
             )
-            hunt_jobs = [j for j in jobs if j.get("job_type") == "Automated hunt"]
             self.remote_workspace_tabs.setVisible(bool(active_jobs) or bool(hunt_jobs) or bool(findings))
             terminal_statuses = {"completed", "failed", "stopped"}
             hunt_finished = bool(hunt_jobs) and all(
