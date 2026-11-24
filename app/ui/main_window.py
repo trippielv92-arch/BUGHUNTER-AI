@@ -216,7 +216,9 @@ class Window(QMainWindow):
    "remote_archived_list", "remote_selected_project_title",
    "remote_project_details", "remote_scope_hint",
    "remote_start_hunt_button", "remote_archive_button",
-   "remote_restore_button",
+   "remote_restore_button", "remote_analyze_button",
+   "remote_report_format", "remote_download_report_button",
+   "remote_stage_status", "remote_create_project_button",
   ):
    setattr(self, name, getattr(self.cloud_workspace, name))
 
@@ -447,6 +449,10 @@ class Window(QMainWindow):
 
    self.api_client.approve_scope(project_id, policy_text)
    self.remote_project = self.api_client.get_project(project_id)
+   self.remote_tools_dialog.accept()
+   self.remote_stage_status.setText(
+    "SCOPE APPROVED — the exact included assets are saved. You can now start the cloud hunt."
+   )
    self.refresh_remote_test_credentials()
    self.remote_start_hunt_button.setEnabled(True)
    self.remote_selected_project_title.setText(self.remote_project.get("name", "Selected project"))
@@ -463,6 +469,7 @@ class Window(QMainWindow):
     "Excluded assets remain unapproved."
    )
    self.refresh_remote_workspace()
+   self.remote_workspace_tabs.show()
   except APIError as exc:
    QMessageBox.warning(self, "Approve scope", str(exc))
   except Exception as exc:
@@ -528,6 +535,12 @@ class Window(QMainWindow):
     f"Queued {len(queued)} cloud hunt(s) for project #{project_id}."
    )
    self.refresh_remote_workspace()
+   self.remote_workspace_tabs.show()
+   self.remote_workspace_tabs.setCurrentWidget(self.remote_findings_table)
+   self.remote_stage_status.setText(
+    "HUNT QUEUED — the independent cloud worker will process every approved asset. "
+    "Findings and progress will appear below."
+   )
    QMessageBox.information(
     self,
     "Cloud hunts queued",
@@ -594,18 +607,46 @@ class Window(QMainWindow):
     "Policy analysis saved. Candidate assets require independent review; "
     "none have been approved."
    )
-   extracted_text = (result.get("analysis") or {}).get("policy_text", "")
+   analysis = result.get("analysis") or {}
+   extracted_text = analysis.get("policy_text", "")
    if extracted_text:
     self.remote_policy_text.setPlainText(extracted_text)
    self.refresh_remote_policy_assets()
 
-   self.remote_project_details.setPlainText(
-    "PROGRAM POLICY ANALYSIS\n"
-    "=======================\n"
-    + json.dumps(result, indent=2, ensure_ascii=False, default=str)
-    + "\n\nIMPORTANT: Extracted assets are candidates only. "
-      "They are not approved scope."
+   controls = analysis.get("execution_controls") or {}
+   rules = analysis.get("rules") or {}
+   scope = analysis.get("scope") or {}
+   summary = [
+    f"PROGRAMME: {analysis.get('title') or project.get('name')}",
+    f"POLICY SOURCE: {analysis.get('source', 'unknown')}",
+    f"EXTRACTION CONFIDENCE: {(analysis.get('policy') or {}).get('extraction_confidence', 'low').upper()}",
+    f"SCOPE CANDIDATES: {len(scope.get('included_candidates', []))} included · {len(scope.get('excluded_candidates', []))} excluded · {len(scope.get('ambiguous_candidates', []))} ambiguous",
+    "",
+    "DOs / EXECUTION CONTROLS",
+    f"Passive discovery: {'ALLOWED' if controls.get('passive_discovery_allowed') else 'BLOCKED BY POLICY'}",
+    f"Active automated testing: {'ALLOWED SUBJECT TO APPROVAL' if controls.get('active_automated_testing_allowed') else 'BLOCKED BY POLICY'}",
+    f"Minimum request delay: {controls.get('minimum_request_delay_seconds', 'not extracted')} seconds",
+    f"Rate-limit evidence: {' ; '.join(controls.get('rate_limit_evidence', [])[:5]) or 'No explicit rate limit extracted'}",
+    "",
+    "POLICY RULES / DON'Ts",
+   ]
+   for category, entries in rules.items():
+    summary.append(f"{category.replace('_', ' ').title()}:")
+    summary.extend(f"  • {entry}" for entry in entries[:12])
+   summary += [
+    "",
+    "SCOPE CANDIDATES ARE NOT AUTHORIZATION.",
+    "Excluded assets override conflicting inclusions. Wildcards, CIDRs, path-limited URLs and ambiguous assets require separate human interpretation.",
+    "",
+    "WARNINGS",
+   ]
+   summary.extend(f"• {warning}" for warning in analysis.get("warnings", []))
+   self.remote_project_details.setPlainText("\n".join(summary))
+   self.remote_stage_status.setText(
+    "POLICY ANALYZED AND SAVED — review the original policy, extracted do's and don'ts, "
+    "and every candidate asset before approving the exact scope."
    )
+   self.open_remote_project_tools()
 
    self.statusBar().showMessage(
     f"Policy analysis saved for remote project #{project_id}."
@@ -613,10 +654,12 @@ class Window(QMainWindow):
 
   except APIError as exc:
    self.remote_policy_status.setText("Policy analysis failed.")
+   self.remote_analyze_button.setEnabled(True)
    QMessageBox.warning(self, "Program analysis", str(exc))
 
   except Exception as exc:
    self.remote_policy_status.setText("Policy analysis failed.")
+   self.remote_analyze_button.setEnabled(True)
    QMessageBox.warning(
     self, "Program analysis",
     f"Unexpected error: {exc}"
@@ -875,6 +918,35 @@ class Window(QMainWindow):
     f"Unexpected error: {exc}"
    )
 
+ def download_remote_report(self):
+  if not self.api_client or not self.remote_project_id:
+   QMessageBox.warning(self, "Report", "Select a project first.")
+   return
+  fmt = self.remote_report_format.currentData()
+  extension = "md" if fmt == "markdown" else fmt
+  project_name = (self.remote_project or {}).get("name", "bughunter-project")
+  safe_name = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in project_name).strip("_")
+  filename = f"{safe_name or 'bughunter-project'}_security_report.{extension}"
+  destination, _ = QFileDialog.getSaveFileName(
+   self, "Download security assessment report",
+   str(Path.home() / "Downloads" / filename),
+   "All files (*)",
+  )
+  if not destination:
+   return
+  try:
+   payload = self.api_client.download_report(self.remote_project_id, fmt)
+   Path(destination).write_bytes(payload)
+   QMessageBox.information(
+    self, "Report downloaded",
+    f"Your first-person security report was saved to:\n{destination}\n\n"
+    "Review all findings and evidence before submitting it to the programme."
+   )
+  except APIError as exc:
+   QMessageBox.warning(self, "Report download", str(exc))
+  except Exception as exc:
+   QMessageBox.warning(self, "Report download", f"Could not save report: {exc}")
+
  def refresh_remote_projects(self):
   workspace = getattr(self, "cloud_workspace", None)
   if workspace is not None:
@@ -891,6 +963,9 @@ class Window(QMainWindow):
 
   if not name:
    QMessageBox.warning(self, "Create project", "Enter a project name.")
+   return
+  if not programme_url.startswith("https://"):
+   QMessageBox.warning(self, "Create project", "Enter the official programme URL beginning with https://.")
    return
 
   try:
@@ -910,16 +985,18 @@ class Window(QMainWindow):
     f"Programme URL: {project.get('programme_url', '') or 'Not supplied'}\n\n"
     "The project is stored on the central API server."
    )
+   self.remote_selected_project_title.show()
+   self.remote_stage_status.setText(
+    "PROJECT CREATED — next, press ANALYZE PROJECT. The programme policy will be retrieved and saved before any target testing."
+   )
+   self.remote_analyze_button.setEnabled(True)
+   self.remote_workspace_tabs.hide()
+   self.remote_start_hunt_button.hide()
    self.refresh_remote_workspace()
    QMessageBox.information(
     self, "Project created",
-    f"Remote project #{project['id']} was created successfully."
+    f"Project '{project.get('name')}' was created. Next step: Analyze Project."
    )
-   if programme_url:
-    self.remote_policy_status.setText(
-     "Project created. Automatically retrieving and analyzing its programme policy..."
-    )
-    self.analyze_remote_program()
   except APIError as exc:
    QMessageBox.warning(self, "Create project", str(exc))
 
