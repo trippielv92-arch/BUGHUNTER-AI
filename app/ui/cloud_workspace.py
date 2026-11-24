@@ -193,11 +193,9 @@ class CloudWorkspace(QWidget):
         self.remote_assets_table = self._make_table(
             ["Host", "Scope decision", "Authorization", "Policy / review notes"]
         )
-        self.remote_workspace_tabs.addTab(self.remote_assets_table, "Attack surface")
         self.remote_endpoints_table = self._make_table(
             ["Method", "Endpoint", "Type", "Notes"]
         )
-        self.remote_workspace_tabs.addTab(self.remote_endpoints_table, "Endpoints & APIs")
         self._build_assessments()
         self.remote_findings_table = self._make_table(
             ["Severity", "Confidence", "Status", "Category", "Finding", "Affected asset", "Evidence"]
@@ -206,13 +204,11 @@ class CloudWorkspace(QWidget):
         self.remote_jobs_table = self._make_table(
             ["Job", "Status", "Progress", "Last checkpoint", "Created", "Finished / error"]
         )
-        self.remote_workspace_tabs.addTab(self.remote_jobs_table, "Hunt jobs")
         self.remote_evidence_table = self._make_table(
             ["ID", "Evidence file", "SHA-256", "Size", "Linked record", "Added"]
         )
         self.remote_workspace_tabs.addTab(self.remote_evidence_table, "Evidence")
         self.remote_activity_table = self._make_table(["Time", "Event", "Details"])
-        self.remote_workspace_tabs.addTab(self.remote_activity_table, "Activity")
         body.addWidget(work, 1)
         outer.addLayout(body, 1)
 
@@ -282,7 +278,7 @@ class CloudWorkspace(QWidget):
         latest_layout.addWidget(self.remote_hunt_progress)
         layout.addWidget(latest)
         layout.addStretch(1)
-        self.remote_workspace_tabs.addTab(page, "Overview")
+        self.remote_workspace_tabs.addTab(page, "Progress")
 
     def _build_assessments(self):
         page = QWidget()
@@ -309,7 +305,6 @@ class CloudWorkspace(QWidget):
             ["Asset", "Assessment check", "Outcome", "Observed at"]
         )
         layout.addWidget(self.remote_checks_table, 2)
-        self.remote_workspace_tabs.addTab(page, "Assessments")
 
     def _make_table(self, headers):
         table = QTableWidget(0, len(headers))
