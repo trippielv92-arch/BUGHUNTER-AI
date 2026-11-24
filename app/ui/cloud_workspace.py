@@ -128,7 +128,7 @@ class CloudWorkspace(QWidget):
         self.remote_selected_project_title.setStyleSheet("font-size:21px;font-weight:800;color:#f1f6ff")
         project_header.addWidget(self.remote_selected_project_title)
         project_header.addStretch(1)
-        self.remote_archive_button = QPushButton("Archive")
+        self.remote_archive_button = QPushButton("Delete project")
         self.remote_archive_button.setStyleSheet("background:#46566d")
         self.remote_archive_button.clicked.connect(self.window.archive_remote_project)
         project_header.addWidget(self.remote_archive_button)
