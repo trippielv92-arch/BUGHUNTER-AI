@@ -1,4 +1,5 @@
 import json
+from datetime import timedelta
 
 import pytest
 
@@ -6,7 +7,9 @@ from app.services.projects import create_project, add_scope_asset, approve_scope
 from app.services.jobs import (
     create_hunt_job,
     retry_hunt_job,
+    touch_job_heartbeat,
     transition_job,
+    utc_now,
 )
 
 
@@ -68,3 +71,24 @@ def test_retry_helper_does_not_requeue_non_hunt_or_non_running_jobs(
     transition_job(db, ordinary.id, "running")
     assert retry_hunt_job(db, ordinary.id, TimeoutError(), 1) == 0
     assert ordinary.status == "running"
+
+
+
+def test_job_heartbeat_updates_liveness_without_changing_progress(
+    db, approved_project
+):
+    job = create_hunt_job(
+        db, approved_project.id, "https://example.com/"
+    )
+    assert touch_job_heartbeat(db, job.id) is False
+
+    transition_job(db, job.id, "running", progress=42)
+    stale_timestamp = utc_now() - timedelta(minutes=2)
+    job.updated_at = stale_timestamp
+    db.commit()
+
+    assert touch_job_heartbeat(db, job.id) is True
+    db.refresh(job)
+    assert job.status == "running"
+    assert job.progress == 42
+    assert job.updated_at > stale_timestamp
